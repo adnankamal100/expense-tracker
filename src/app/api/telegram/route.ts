@@ -6,24 +6,44 @@ import {
   type DebtParseFailureReason,
 } from "@/lib/telegram-debt-parser";
 import {
-  buildDebtSummary,
   buildPersonDebtBreakdown,
   getPersonBalance,
   type DebtRecord,
 } from "@/lib/debt-summary";
+import {
+  buildDebtBackButton,
+  buildDebtMenu,
+  parseDebtCallbackData,
+  type TelegramInlineKeyboardMarkup,
+} from "@/lib/telegram-debt-menu";
 
-type TelegramUpdate = {
-  update_id: number;
-  message?: {
-    text?: string;
-    chat: {
-      id: number;
-    };
-    from?: {
-      id: number;
-    };
+type TelegramMessage = {
+  message_id?: number;
+  text?: string;
+  chat: {
+    id: number;
+  };
+  from?: {
+    id: number;
   };
 };
+
+type TelegramUpdate = {
+  callback_query?: {
+    data?: string;
+    from: {
+      id: number;
+    };
+    id: string;
+    message?: TelegramMessage;
+  };
+  update_id: number;
+  message?: TelegramMessage;
+};
+
+type TelegramCallbackQuery = NonNullable<
+  TelegramUpdate["callback_query"]
+>;
 
 type Expense = {
   id: number;
@@ -175,7 +195,10 @@ function buildDebtInputError(reason: DebtParseFailureReason): string {
   ].join("\n");
 }
 
-async function sendTelegramMessage(chatId: number, text: string) {
+async function callTelegramApi(
+  method: string,
+  payload: Record<string, unknown>,
+) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
 
   if (!token) {
@@ -183,16 +206,13 @@ async function sendTelegramMessage(chatId: number, text: string) {
   }
 
   const response = await fetch(
-    `https://api.telegram.org/bot${token}/sendMessage`,
+    `https://api.telegram.org/bot${token}/${method}`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-      }),
+      body: JSON.stringify(payload),
     },
   );
 
@@ -200,8 +220,55 @@ async function sendTelegramMessage(chatId: number, text: string) {
 
   if (!response.ok || !result.ok) {
     throw new Error(
-      `Telegram reply failed: ${result.description ?? "Unknown error"}`,
+      `Telegram ${method} failed: ${result.description ?? "Unknown error"}`,
     );
+  }
+}
+
+async function sendTelegramMessage(
+  chatId: number,
+  text: string,
+  replyMarkup?: TelegramInlineKeyboardMarkup,
+) {
+  await callTelegramApi("sendMessage", {
+    chat_id: chatId,
+    text,
+    ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+  });
+}
+
+async function editTelegramMessage(
+  chatId: number,
+  messageId: number,
+  text: string,
+  replyMarkup?: TelegramInlineKeyboardMarkup,
+) {
+  await callTelegramApi("editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+  });
+}
+
+async function answerTelegramCallbackQuery(
+  callbackQueryId: string,
+  text?: string,
+) {
+  await callTelegramApi("answerCallbackQuery", {
+    callback_query_id: callbackQueryId,
+    ...(text ? { text } : {}),
+  });
+}
+
+async function safelyAnswerTelegramCallbackQuery(
+  callbackQueryId: string,
+  text?: string,
+) {
+  try {
+    await answerTelegramCallbackQuery(callbackQueryId, text);
+  } catch (error) {
+    console.error("Could not acknowledge Telegram debt button:", error);
   }
 }
 
@@ -251,6 +318,93 @@ function buildExpenseSummary(expenses: Expense[]): string {
   return `Total: ${formatCurrency(total)}\n\n${categoryLines}`;
 }
 
+async function fetchOpenDebts(): Promise<Debt[]> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("debts")
+    .select(
+      "id, amount, person_name, record_type, status, due_date, description, created_at",
+    )
+    .eq("status", "OPEN");
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []) as Debt[];
+}
+
+async function handleDebtCallback(
+  callbackQuery: TelegramCallbackQuery,
+) {
+  const action = callbackQuery.data
+    ? parseDebtCallbackData(callbackQuery.data)
+    : null;
+
+  if (!action) {
+    await safelyAnswerTelegramCallbackQuery(
+      callbackQuery.id,
+      "This debt button is no longer available.",
+    );
+    return;
+  }
+
+  await safelyAnswerTelegramCallbackQuery(callbackQuery.id);
+
+  if (action.kind === "NOOP") {
+    return;
+  }
+
+  const message = callbackQuery.message;
+
+  if (!message?.message_id) {
+    return;
+  }
+
+  const debts = await fetchOpenDebts();
+
+  if (action.kind === "PAGE") {
+    const menu = buildDebtMenu(debts, action.page);
+
+    await editTelegramMessage(
+      message.chat.id,
+      message.message_id,
+      menu.text,
+      menu.replyMarkup,
+    );
+    return;
+  }
+
+  const representativeDebt = debts.find(
+    (debt) => String(debt.id) === action.recordId,
+  );
+  const backButton = buildDebtBackButton(action.returnPage);
+
+  if (!representativeDebt) {
+    await editTelegramMessage(
+      message.chat.id,
+      message.message_id,
+      [
+        "This balance has changed since the list was opened.",
+        "Tap Back to refresh your outstanding debts.",
+      ].join("\n\n"),
+      backButton,
+    );
+    return;
+  }
+
+  await editTelegramMessage(
+    message.chat.id,
+    message.message_id,
+    buildPersonDebtBreakdown(
+      debts,
+      representativeDebt.person_name,
+      "BALANCE",
+    ),
+    backButton,
+  );
+}
+
 async function handleCommand(
   command: string,
   commandArguments: string,
@@ -279,7 +433,7 @@ async function handleCommand(
         "/today — today's spending",
         "/month — this month's spending",
         "/recent — latest expenses",
-        "/debts — outstanding balances",
+        "/debts — tap a person to view outstanding balances",
         "/debts Bhavya — total and individual entries",
         "/help — show this message",
       ].join("\n"),
@@ -365,23 +519,28 @@ async function handleCommand(
   }
 
   if (command === "/debts") {
-    const { data, error } = await supabase
-      .from("debts")
-      .select(
-        "id, amount, person_name, record_type, status, due_date, description, created_at",
-      )
-      .eq("status", "OPEN");
+    const debts = await fetchOpenDebts();
 
-    if (error) {
-      throw error;
+    if (commandArguments) {
+      await sendTelegramMessage(
+        chatId,
+        buildPersonDebtBreakdown(
+          debts,
+          commandArguments,
+          "BALANCE",
+        ),
+        buildDebtBackButton(0),
+      );
+      return;
     }
 
-    const debts = (data ?? []) as Debt[];
-    const response = commandArguments
-      ? buildPersonDebtBreakdown(debts, commandArguments, "BALANCE")
-      : `🤝 Outstanding balances\n\n${buildDebtSummary(debts)}`;
+    const menu = buildDebtMenu(debts);
 
-    await sendTelegramMessage(chatId, response);
+    await sendTelegramMessage(
+      chatId,
+      menu.text,
+      menu.replyMarkup,
+    );
 
     return;
   }
@@ -395,6 +554,13 @@ async function handleCommand(
 export async function POST(request: Request) {
   try {
     const update = (await request.json()) as TelegramUpdate;
+    const callbackQuery = update.callback_query;
+
+    if (callbackQuery) {
+      await handleDebtCallback(callbackQuery);
+      return Response.json({ ok: true });
+    }
+
     const message = update.message;
 
     if (!message?.text || !message.from?.id) {
@@ -423,22 +589,12 @@ export async function POST(request: Request) {
     const debtQuery = parseDebtQuery(text);
 
     if (debtQuery) {
-      const supabase = getSupabaseClient();
-      const { data, error } = await supabase
-        .from("debts")
-        .select(
-          "id, amount, person_name, record_type, status, due_date, description, created_at",
-        )
-        .eq("status", "OPEN");
-
-      if (error) {
-        throw error;
-      }
+      const debts = await fetchOpenDebts();
 
       await sendTelegramMessage(
         chatId,
         buildPersonDebtBreakdown(
-          (data ?? []) as Debt[],
+          debts,
           debtQuery.personName,
           debtQuery.kind,
         ),

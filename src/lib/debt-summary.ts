@@ -5,6 +5,7 @@ import {
 } from "./telegram-debt-parser.ts";
 
 export type DebtRecord = {
+  id?: number | string;
   amount: number | string;
   created_at?: string;
   description?: string | null;
@@ -12,6 +13,14 @@ export type DebtRecord = {
   person_name: string;
   record_type: DebtType;
   status: "OPEN" | "SETTLED";
+};
+
+export type OutstandingDebtPerson = {
+  borrowedAmount: number;
+  lentAmount: number;
+  netAmount: number;
+  personName: string;
+  representativeId: number | string | null;
 };
 
 function formatCurrency(amount: number): string {
@@ -71,15 +80,12 @@ export function getPersonBalance(
     );
 }
 
-export function buildDebtSummary(debts: DebtRecord[]): string {
+export function getOutstandingDebtPeople(
+  debts: DebtRecord[],
+): OutstandingDebtPerson[] {
   const balances = new Map<
     string,
-    {
-      borrowedAmount: number;
-      lentAmount: number;
-      netAmount: number;
-      personName: string;
-    }
+    OutstandingDebtPerson
   >();
 
   for (const debt of debts.filter((item) => item.status === "OPEN")) {
@@ -89,7 +95,12 @@ export function buildDebtSummary(debts: DebtRecord[]): string {
       lentAmount: 0,
       personName: debt.person_name,
       netAmount: 0,
+      representativeId: debt.id ?? null,
     };
+
+    if (balance.representativeId === null && debt.id !== undefined) {
+      balance.representativeId = debt.id;
+    }
 
     if (debt.record_type === "LENT") {
       balance.lentAmount += Number(debt.amount);
@@ -102,12 +113,16 @@ export function buildDebtSummary(debts: DebtRecord[]): string {
     balances.set(key, balance);
   }
 
-  const outstanding = Array.from(balances.values())
+  return Array.from(balances.values())
     .filter((balance) => Math.abs(balance.netAmount) >= 0.005)
     .sort(
       (first, second) =>
         Math.abs(second.netAmount) - Math.abs(first.netAmount),
     );
+}
+
+export function buildDebtSummary(debts: DebtRecord[]): string {
+  const outstanding = getOutstandingDebtPeople(debts);
 
   if (outstanding.length === 0) {
     return "No outstanding borrowed or lent balances.";
