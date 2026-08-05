@@ -554,7 +554,13 @@ export function normalizePersonName(name: string): string {
 }
 
 export function parseDebtQuery(text: string): ParsedDebtQuery | null {
-  const normalizedText = normalizeInput(text);
+  const normalizedText = normalizeInput(text)
+    .replace(/^(?:please|pls|plz)\s+/i, "")
+    .replace(/^(?:sho+w+|shwo)\b/i, "show")
+    .replace(
+      /^(?:show|tell|check)(?:\s+me)?\s+(?=how\s+much\b)/i,
+      "",
+    );
 
   for (const queryPattern of debtQueryPatterns) {
     const match = normalizedText.match(queryPattern.pattern);
