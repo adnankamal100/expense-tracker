@@ -50,7 +50,7 @@ const debtPatterns: Array<{
 }> = [
   {
     pattern: new RegExp(
-      `^i\\s+borrowed\\s+(?:money\\s+)?${currencyBeforePattern}${amountPattern}${currencyAfterPattern}\\s+from\\s+(.+?)(?:\\s+on\\s+(.+))?$`,
+      `^i\\s+(?:borrowed|borrow)\\s+(?:money\\s+)?${currencyBeforePattern}${amountPattern}${currencyAfterPattern}\\s+from\\s+(.+?)(?:\\s+on\\s+(.+))?$`,
       "i",
     ),
     recordType: "BORROWED",
@@ -60,7 +60,7 @@ const debtPatterns: Array<{
   },
   {
     pattern: new RegExp(
-      `^i\\s+lent\\s+(?:money\\s+)?${currencyBeforePattern}${amountPattern}${currencyAfterPattern}\\s+to\\s+(.+?)(?:\\s+on\\s+(.+))?$`,
+      `^i\\s+(?:lent|leant|lend)\\s+(?:money\\s+)?${currencyBeforePattern}${amountPattern}${currencyAfterPattern}\\s+to\\s+(.+?)(?:\\s+on\\s+(.+))?$`,
       "i",
     ),
     recordType: "LENT",
@@ -76,6 +76,26 @@ const debtPatterns: Array<{
     recordType: "LENT",
     amountGroup: 2,
     personGroup: 1,
+    dateGroup: 3,
+  },
+  {
+    pattern: new RegExp(
+      `^(?:borrowed|borrow)\\s+${currencyBeforePattern}${amountPattern}${currencyAfterPattern}\\s+(?:from\\s+)?(.+?)(?:\\s+on\\s+(.+))?$`,
+      "i",
+    ),
+    recordType: "BORROWED",
+    amountGroup: 1,
+    personGroup: 2,
+    dateGroup: 3,
+  },
+  {
+    pattern: new RegExp(
+      `^(?:lent|leant|lend)\\s+${currencyBeforePattern}${amountPattern}${currencyAfterPattern}\\s+(?:to\\s+)?(.+?)(?:\\s+on\\s+(.+))?$`,
+      "i",
+    ),
+    recordType: "LENT",
+    amountGroup: 1,
+    personGroup: 2,
     dateGroup: 3,
   },
 ];
@@ -295,8 +315,15 @@ function parseMoneyDate(value?: string): string | null {
 }
 
 function parseDebt(text: string): ParsedDebt | null {
+  const trimmedText = text.trim();
+  const normalizedText = /\s+on\s+(?:today|yesterday)$/i.test(
+    trimmedText,
+  )
+    ? trimmedText
+    : trimmedText.replace(/\s+(today|yesterday)$/i, " on $1");
+
   for (const debtPattern of debtPatterns) {
-    const match = text.trim().match(debtPattern.pattern);
+    const match = normalizedText.match(debtPattern.pattern);
 
     if (!match) {
       continue;
@@ -331,7 +358,7 @@ function parseDebt(text: string): ParsedDebt | null {
 }
 
 function isDebtIntent(text: string): boolean {
-  return /\b(?:borrowed|borrow|lent|lend|loaned)\b/i.test(text);
+  return /\b(?:borrowed|borrow|lent|leant|lend|loaned)\b/i.test(text);
 }
 
 function normalizePersonName(name: string): string {
@@ -497,6 +524,8 @@ async function handleCommand(
         "100 for fried rice",
         "",
         "Track borrowed or lent money:",
+        "borrowed 500 Rahul",
+        "lent 700 Bhavya",
         "I borrowed 1000rs from Bhavya",
         "I lent 500rs to Bhavya on 13th July",
         "Bhavya borrowed 500rs from me",
@@ -706,6 +735,8 @@ export async function POST(request: Request) {
           "Please include the amount, person and direction.",
           "",
           "Examples:",
+          "borrowed 500 Rahul",
+          "lent 700 Bhavya",
           "I borrowed 1000rs from Bhavya",
           "I lent 500rs to Bhavya on 13th July",
           "Bhavya borrowed 500rs from me",
