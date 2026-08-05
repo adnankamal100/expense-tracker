@@ -1,11 +1,16 @@
 import { createClient } from "@supabase/supabase-js";
 import {
   isDebtIntent,
-  normalizePersonName,
   parseDebtInput,
+  parseDebtQuery,
   type DebtParseFailureReason,
-  type DebtType,
 } from "@/lib/telegram-debt-parser";
+import {
+  buildDebtSummary,
+  buildPersonDebtBreakdown,
+  getPersonBalance,
+  type DebtRecord,
+} from "@/lib/debt-summary";
 
 type TelegramUpdate = {
   update_id: number;
@@ -28,12 +33,7 @@ type Expense = {
   expense_date: string;
 };
 
-type Debt = {
-  amount: number | string;
-  person_name: string;
-  record_type: DebtType;
-  status: "OPEN" | "SETTLED";
-};
+type Debt = DebtRecord;
 
 function getSupabaseClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -175,63 +175,6 @@ function buildDebtInputError(reason: DebtParseFailureReason): string {
   ].join("\n");
 }
 
-function getPersonBalance(debts: Debt[], personName: string): number {
-  const normalizedName = normalizePersonName(personName);
-
-  return debts
-    .filter(
-      (debt) => normalizePersonName(debt.person_name) === normalizedName,
-    )
-    .reduce(
-      (balance, debt) =>
-        balance +
-        (debt.record_type === "LENT"
-          ? Number(debt.amount)
-          : -Number(debt.amount)),
-      0,
-    );
-}
-
-function buildDebtSummary(debts: Debt[]): string {
-  const balances = new Map<
-    string,
-    { personName: string; netAmount: number }
-  >();
-
-  for (const debt of debts) {
-    const key = normalizePersonName(debt.person_name);
-    const balance = balances.get(key) ?? {
-      personName: debt.person_name,
-      netAmount: 0,
-    };
-
-    balance.netAmount +=
-      debt.record_type === "LENT"
-        ? Number(debt.amount)
-        : -Number(debt.amount);
-    balances.set(key, balance);
-  }
-
-  const outstanding = Array.from(balances.values())
-    .filter((balance) => Math.abs(balance.netAmount) >= 0.005)
-    .sort(
-      (first, second) =>
-        Math.abs(second.netAmount) - Math.abs(first.netAmount),
-    );
-
-  if (outstanding.length === 0) {
-    return "No outstanding borrowed or lent balances.";
-  }
-
-  return outstanding
-    .map((balance) => {
-      return balance.netAmount > 0
-        ? `${balance.personName} owes you ${formatCurrency(balance.netAmount)}`
-        : `You owe ${balance.personName} ${formatCurrency(Math.abs(balance.netAmount))}`;
-    })
-    .join("\n");
-}
-
 async function sendTelegramMessage(chatId: number, text: string) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -310,6 +253,7 @@ function buildExpenseSummary(expenses: Expense[]): string {
 
 async function handleCommand(
   command: string,
+  commandArguments: string,
   chatId: number,
   telegramUserId: number,
 ) {
@@ -336,6 +280,7 @@ async function handleCommand(
         "/month — this month's spending",
         "/recent — latest expenses",
         "/debts — outstanding balances",
+        "/debts Bhavya — total and individual entries",
         "/help — show this message",
       ].join("\n"),
     );
@@ -422,17 +367,21 @@ async function handleCommand(
   if (command === "/debts") {
     const { data, error } = await supabase
       .from("debts")
-      .select("amount, person_name, record_type, status")
+      .select(
+        "id, amount, person_name, record_type, status, due_date, description, created_at",
+      )
       .eq("status", "OPEN");
 
     if (error) {
       throw error;
     }
 
-    await sendTelegramMessage(
-      chatId,
-      `🤝 Outstanding balances\n\n${buildDebtSummary((data ?? []) as Debt[])}`,
-    );
+    const debts = (data ?? []) as Debt[];
+    const response = commandArguments
+      ? buildPersonDebtBreakdown(debts, commandArguments, "BALANCE")
+      : `🤝 Outstanding balances\n\n${buildDebtSummary(debts)}`;
+
+    await sendTelegramMessage(chatId, response);
 
     return;
   }
@@ -457,12 +406,43 @@ export async function POST(request: Request) {
     const telegramUserId = message.from.id;
 
     if (text.startsWith("/")) {
-      const command = text
-        .split(/\s+/)[0]
-        .split("@")[0]
-        .toLowerCase();
+      const [rawCommand, ...argumentParts] = text.split(/\s+/);
+      const command = rawCommand.split("@")[0].toLowerCase();
+      const commandArguments = argumentParts.join(" ").trim();
 
-      await handleCommand(command, chatId, telegramUserId);
+      await handleCommand(
+        command,
+        commandArguments,
+        chatId,
+        telegramUserId,
+      );
+
+      return Response.json({ ok: true });
+    }
+
+    const debtQuery = parseDebtQuery(text);
+
+    if (debtQuery) {
+      const supabase = getSupabaseClient();
+      const { data, error } = await supabase
+        .from("debts")
+        .select(
+          "id, amount, person_name, record_type, status, due_date, description, created_at",
+        )
+        .eq("status", "OPEN");
+
+      if (error) {
+        throw error;
+      }
+
+      await sendTelegramMessage(
+        chatId,
+        buildPersonDebtBreakdown(
+          (data ?? []) as Debt[],
+          debtQuery.personName,
+          debtQuery.kind,
+        ),
+      );
 
       return Response.json({ ok: true });
     }

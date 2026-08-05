@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   parseDebtInput,
+  parseDebtQuery,
   parseMoneyDate,
   type DebtParseFailureReason,
   type DebtType,
@@ -216,4 +217,32 @@ test("rejects incomplete, invalid and ambiguous debt messages", () => {
 test("date parser validates leap years", () => {
   assert.equal(parseMoneyDate("29 February 2024", now), "2024-02-29");
   assert.equal(parseMoneyDate("29 February 2025", now), null);
+});
+
+test("understands person-specific balance questions", () => {
+  const cases = [
+    ["how much do I owe Bhavya?", "BALANCE", "Bhavya"],
+    ["what do I owe to Rahul", "BALANCE", "Rahul"],
+    ["how much does Bhavya owe me", "BALANCE", "Bhavya"],
+    ["balance with Rahul", "BALANCE", "Rahul"],
+    ["what's my balance with Rahul Kumar", "BALANCE", "Rahul Kumar"],
+    ["Bhavya balance", "BALANCE", "Bhavya"],
+    ["show debts for Bhavya", "BALANCE", "Bhavya"],
+    ["how much did I borrow from Bhavya", "BORROWED", "Bhavya"],
+    ["how much borrowed from Bhavya", "BORROWED", "Bhavya"],
+    ["total borrowed from Bhavya", "BORROWED", "Bhavya"],
+    ["how much have I borrowed from Rahul", "BORROWED", "Rahul"],
+    ["show what I borrowed from Rahul", "BORROWED", "Rahul"],
+    ["how much did I lend Bhavya", "LENT", "Bhavya"],
+    ["how much lent to Bhavya", "LENT", "Bhavya"],
+    ["total lent to Bhavya", "LENT", "Bhavya"],
+    ["how much has Bhavya borrowed from me", "LENT", "Bhavya"],
+  ] as const;
+
+  for (const [input, kind, personName] of cases) {
+    assert.deepEqual(parseDebtQuery(input), { kind, personName });
+  }
+
+  assert.equal(parseDebtQuery("borrowed 500 Bhavya"), null);
+  assert.equal(parseDebtQuery("500 for coffee"), null);
 });

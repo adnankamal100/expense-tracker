@@ -8,6 +8,13 @@ export type ParsedDebt = {
   moneyDate: string;
 };
 
+export type DebtQueryKind = "BALANCE" | "BORROWED" | "LENT";
+
+export type ParsedDebtQuery = {
+  kind: DebtQueryKind;
+  personName: string;
+};
+
 export type DebtParseFailureReason =
   | "not_debt"
   | "missing_amount"
@@ -23,6 +30,11 @@ export type DebtParseResult =
 type DebtPattern = {
   pattern: RegExp;
   recordType: DebtType;
+};
+
+type DebtQueryPattern = {
+  kind: DebtQueryKind;
+  pattern: RegExp;
 };
 
 const amountValuePattern =
@@ -138,6 +150,65 @@ const debtPatterns: DebtPattern[] = [
       "iu",
     ),
     recordType: "LENT",
+  },
+];
+
+const debtQueryPatterns: DebtQueryPattern[] = [
+  {
+    pattern: new RegExp(
+      `^(?:(?:what(?:'s| is)|show|check)\\s+)?(?:my\\s+)?balance\\s+(?:with|for)\\s+${personPattern}$`,
+      "iu",
+    ),
+    kind: "BALANCE",
+  },
+  {
+    pattern: new RegExp(
+      `^(?:show|check)\\s+(?:my\\s+)?debts?\\s+(?:with|for)\\s+${personPattern}$`,
+      "iu",
+    ),
+    kind: "BALANCE",
+  },
+  {
+    pattern: new RegExp(
+      `^${personPattern}\\s+(?:balance|summary)$`,
+      "iu",
+    ),
+    kind: "BALANCE",
+  },
+  {
+    pattern: new RegExp(
+      `^(?:how\\s+much\\s+(?:do\\s+)?(?:i\\s+)?|what\\s+do\\s+i\\s+)owe\\s+(?:to\\s+)?${personPattern}$`,
+      "iu",
+    ),
+    kind: "BALANCE",
+  },
+  {
+    pattern: new RegExp(
+      `^how\\s+much\\s+(?:does\\s+)?${personPattern}\\s+owe\\s+me$`,
+      "iu",
+    ),
+    kind: "BALANCE",
+  },
+  {
+    pattern: new RegExp(
+      `^(?:how\\s+much\\s+(?:(?:did|have)\\s+)?(?:i\\s+)?|total\\s+|show\\s+(?:what\\s+)?i\\s+)borrow(?:ed)?\\s+from\\s+${personPattern}$`,
+      "iu",
+    ),
+    kind: "BORROWED",
+  },
+  {
+    pattern: new RegExp(
+      `^(?:how\\s+much\\s+(?:(?:did|have)\\s+)?(?:i\\s+)?|total\\s+|show\\s+(?:what\\s+)?i\\s+)(?:lent|lend)\\s+(?:to\\s+)?${personPattern}$`,
+      "iu",
+    ),
+    kind: "LENT",
+  },
+  {
+    pattern: new RegExp(
+      `^how\\s+much\\s+(?:(?:did|has|have)\\s+)?${personPattern}\\s+borrow(?:ed)?\\s+from\\s+me$`,
+      "iu",
+    ),
+    kind: "LENT",
   },
 ];
 
@@ -480,6 +551,23 @@ export function isDebtIntent(text: string): boolean {
 
 export function normalizePersonName(name: string): string {
   return name.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-IN");
+}
+
+export function parseDebtQuery(text: string): ParsedDebtQuery | null {
+  const normalizedText = normalizeInput(text);
+
+  for (const queryPattern of debtQueryPatterns) {
+    const match = normalizedText.match(queryPattern.pattern);
+    const personName = match?.groups?.person
+      ? cleanPersonName(match.groups.person)
+      : null;
+
+    if (personName) {
+      return { kind: queryPattern.kind, personName };
+    }
+  }
+
+  return null;
 }
 
 export function parseDebtInput(

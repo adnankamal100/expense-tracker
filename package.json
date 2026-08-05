@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:telegram": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/telegram-debt-parser.test.ts"
+    "test:telegram": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/telegram-debt-parser.test.ts src/lib/debt-summary.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.0",

@@ -547,6 +547,32 @@ export default function DebtSection() {
                 const owesYou = balance.netAmount > 0.005;
                 const youOwe = balance.netAmount < -0.005;
                 const isEven = !owesYou && !youOwe;
+                const borrowedRecords = balance.records.filter(
+                  (debt) => debt.record_type === "BORROWED",
+                );
+                const lentRecords = balance.records.filter(
+                  (debt) => debt.record_type === "LENT",
+                );
+                const borrowedTotal = borrowedRecords.reduce(
+                  (total, debt) => total + Number(debt.amount),
+                  0,
+                );
+                const lentTotal = lentRecords.reduce(
+                  (total, debt) => total + Number(debt.amount),
+                  0,
+                );
+                const recordGroups = [
+                  {
+                    title: "You borrowed from them",
+                    total: borrowedTotal,
+                    records: borrowedRecords,
+                  },
+                  {
+                    title: "They borrowed from you",
+                    total: lentTotal,
+                    records: lentRecords,
+                  },
+                ];
 
                 return (
                   <div
@@ -608,41 +634,80 @@ export default function DebtSection() {
 
                     <details className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800">
                       <summary className="cursor-pointer text-xs font-semibold text-violet-600 dark:text-violet-400">
-                        View individual entries
+                        View total split and {balance.records.length}{" "}
+                        individual {balance.records.length === 1 ? "entry" : "entries"}
                       </summary>
 
-                      <div className="mt-3 space-y-2">
-                        {balance.records.map((debt) => (
-                          <div
-                            key={debt.id}
-                            className="flex flex-col justify-between gap-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60 sm:flex-row sm:items-center"
-                          >
-                            <div>
-                              <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                                {debt.record_type === "LENT"
-                                  ? "They borrowed from you"
-                                  : "You borrowed from them"}{" "}
-                                · {formatCurrency(Number(debt.amount))}
-                              </p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-xl bg-rose-50 p-3 dark:bg-rose-950/30">
+                          <p className="text-xs font-medium text-rose-700 dark:text-rose-300">
+                            You borrowed
+                          </p>
+                          <p className="mt-1 font-bold text-rose-800 dark:text-rose-200">
+                            {formatCurrency(borrowedTotal)}
+                          </p>
+                        </div>
 
-                              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                {displayDate(getMoneyDate(debt))}
-                                {debt.description
-                                  ? ` · ${debt.description}`
-                                  : ""}
+                        <div className="rounded-xl bg-emerald-50 p-3 dark:bg-emerald-950/30">
+                          <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                            You lent
+                          </p>
+                          <p className="mt-1 font-bold text-emerald-800 dark:text-emerald-200">
+                            {formatCurrency(lentTotal)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 space-y-5">
+                        {recordGroups.map((group) => (
+                          <div key={group.title}>
+                            <div className="mb-2 flex items-center justify-between gap-3">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                {group.title}
+                              </p>
+                              <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                                {formatCurrency(group.total)}
                               </p>
                             </div>
 
-                            <button
-                              type="button"
-                              disabled={updatingId === debt.id}
-                              onClick={() => void deleteDebt(debt.id)}
-                              className="self-start rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40 sm:self-auto"
-                            >
-                              {updatingId === debt.id
-                                ? "Deleting..."
-                                : "Delete entry"}
-                            </button>
+                            {group.records.length === 0 ? (
+                              <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+                                No entries in this direction.
+                              </p>
+                            ) : (
+                              <div className="space-y-2">
+                                {group.records.map((debt) => (
+                                  <div
+                                    key={debt.id}
+                                    className="flex flex-col justify-between gap-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60 sm:flex-row sm:items-center"
+                                  >
+                                    <div>
+                                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                        {formatCurrency(Number(debt.amount))}
+                                      </p>
+
+                                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        {displayDate(getMoneyDate(debt))}
+                                        {debt.description
+                                          ? ` · ${debt.description}`
+                                          : ""}
+                                      </p>
+                                    </div>
+
+                                    <button
+                                      type="button"
+                                      disabled={updatingId === debt.id}
+                                      onClick={() => void deleteDebt(debt.id)}
+                                      className="self-start rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40 sm:self-auto"
+                                    >
+                                      {updatingId === debt.id
+                                        ? "Deleting..."
+                                        : "Delete entry"}
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
