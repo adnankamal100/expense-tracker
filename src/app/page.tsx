@@ -1,5 +1,5 @@
 "use client";
-
+import DebtSection from "@/components/DebtSection";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
@@ -189,46 +189,58 @@ export default function Home() {
   const [darkMode, setDarkMode] = useState(false);
   const [themeLoaded, setThemeLoaded] = useState(false);
 
-  async function loadExpenses() {
-    setLoading(true);
+  useEffect(() => {
+    let cancelled = false;
 
-    const { data, error } = await supabase
-      .from("expenses")
-      .select("*")
-      .order("created_at", { ascending: false });
+    async function loadExpenses() {
+      const { data, error } = await supabase
+        .from("expenses")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-    if (error) {
-      console.error(error);
-      setMessage(`Could not load expenses: ${error.message}`);
-      setMessageType("error");
-    } else {
-      setExpenses((data ?? []) as Expense[]);
+      if (cancelled) {
+        return;
+      }
+
+      if (error) {
+        console.error(error);
+        setMessage(`Could not load expenses: ${error.message}`);
+        setMessageType("error");
+      } else {
+        setExpenses((data ?? []) as Expense[]);
+      }
+
+      setLoading(false);
     }
 
-    setLoading(false);
-  }
-
-  useEffect(() => {
     void loadExpenses();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem("expense-tracker-theme");
+    const frame = window.requestAnimationFrame(() => {
+      const savedTheme = localStorage.getItem("expense-tracker-theme");
 
-    const systemPrefersDark = window.matchMedia(
-      "(prefers-color-scheme: dark)",
-    ).matches;
+      const systemPrefersDark = window.matchMedia(
+        "(prefers-color-scheme: dark)",
+      ).matches;
 
-    const shouldUseDarkMode =
-      savedTheme === "dark" ||
-      (savedTheme === null && systemPrefersDark);
+      const shouldUseDarkMode =
+        savedTheme === "dark" ||
+        (savedTheme === null && systemPrefersDark);
 
-    setDarkMode(shouldUseDarkMode);
-    document.documentElement.classList.toggle(
-      "dark",
-      shouldUseDarkMode,
-    );
-    setThemeLoaded(true);
+      setDarkMode(shouldUseDarkMode);
+      document.documentElement.classList.toggle(
+        "dark",
+        shouldUseDarkMode,
+      );
+      setThemeLoaded(true);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   function toggleTheme() {
@@ -784,7 +796,7 @@ export default function Home() {
             </div>
           )}
         </section>
-
+        <DebtSection />
         <footer className="py-8 text-center text-sm text-slate-400 dark:text-slate-500">
           Expense Tracker · Synced with Supabase and Telegram
         </footer>
