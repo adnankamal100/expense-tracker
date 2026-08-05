@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 
 type Expense = {
   id: number;
-  amount: number;
+  amount: number | string;
   description: string;
   category: string;
   source: string;
@@ -23,6 +23,7 @@ const categoryKeywords: Record<string, string[]> = {
     "lunch",
     "dinner",
     "breakfast",
+    "snack",
   ],
   Transport: [
     "auto",
@@ -32,6 +33,7 @@ const categoryKeywords: Record<string, string[]> = {
     "petrol",
     "fuel",
     "taxi",
+    "metro",
   ],
   Bills: [
     "electricity",
@@ -39,6 +41,8 @@ const categoryKeywords: Record<string, string[]> = {
     "recharge",
     "rent",
     "bill",
+    "water",
+    "wifi",
   ],
   Shopping: [
     "shirt",
@@ -46,19 +50,67 @@ const categoryKeywords: Record<string, string[]> = {
     "amazon",
     "shopping",
     "clothes",
+    "flipkart",
   ],
   Entertainment: [
     "movie",
     "netflix",
     "game",
     "concert",
+    "spotify",
   ],
   Health: [
     "medicine",
     "doctor",
     "hospital",
     "pharmacy",
+    "clinic",
   ],
+};
+
+const categoryStyles: Record<
+  string,
+  {
+    icon: string;
+    badge: string;
+    bar: string;
+  }
+> = {
+  Food: {
+    icon: "🍽️",
+    badge: "bg-orange-50 text-orange-700 ring-orange-200",
+    bar: "bg-orange-500",
+  },
+  Transport: {
+    icon: "🚕",
+    badge: "bg-blue-50 text-blue-700 ring-blue-200",
+    bar: "bg-blue-500",
+  },
+  Bills: {
+    icon: "🧾",
+    badge: "bg-purple-50 text-purple-700 ring-purple-200",
+    bar: "bg-purple-500",
+  },
+  Shopping: {
+    icon: "🛍️",
+    badge: "bg-pink-50 text-pink-700 ring-pink-200",
+    bar: "bg-pink-500",
+  },
+  Entertainment: {
+    icon: "🎬",
+    badge: "bg-indigo-50 text-indigo-700 ring-indigo-200",
+    bar: "bg-indigo-500",
+  },
+  Health: {
+    icon: "💊",
+    badge: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    bar: "bg-emerald-500",
+  },
+  Other: {
+    icon: "📦",
+    badge: "bg-slate-100 text-slate-700 ring-slate-200",
+    bar: "bg-slate-500",
+  },
 };
 
 function detectCategory(description: string): string {
@@ -81,13 +133,52 @@ function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function getStartOfWeek(): string {
+  const today = new Date();
+  const currentDay = today.getDay();
+  const daysFromMonday = currentDay === 0 ? 6 : currentDay - 1;
+
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - daysFromMonday);
+
+  return formatLocalDate(monday);
+}
+
+function getStartOfMonth(): string {
+  const today = new Date();
+
+  return formatLocalDate(
+    new Date(today.getFullYear(), today.getMonth(), 1),
+  );
+}
+
+function displayDate(date: string): string {
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(`${date}T00:00:00`));
+}
+
 export default function Home() {
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState<"success" | "error">(
+    "success",
+  );
 
   async function loadExpenses() {
     setLoading(true);
@@ -100,8 +191,9 @@ export default function Home() {
     if (error) {
       console.error(error);
       setMessage(`Could not load expenses: ${error.message}`);
+      setMessageType("error");
     } else {
-      setExpenses(data ?? []);
+      setExpenses((data ?? []) as Expense[]);
     }
 
     setLoading(false);
@@ -117,8 +209,13 @@ export default function Home() {
     const numericAmount = Number(amount);
     const cleanDescription = description.trim();
 
-    if (!cleanDescription || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+    if (
+      !cleanDescription ||
+      !Number.isFinite(numericAmount) ||
+      numericAmount <= 0
+    ) {
       setMessage("Enter a valid amount and description.");
+      setMessageType("error");
       return;
     }
 
@@ -141,6 +238,7 @@ export default function Home() {
     if (error) {
       console.error(error);
       setMessage(`Could not save expense: ${error.message}`);
+      setMessageType("error");
     } else {
       setExpenses((currentExpenses) => [
         data as Expense,
@@ -149,13 +247,24 @@ export default function Home() {
 
       setAmount("");
       setDescription("");
-      setMessage("Expense saved successfully.");
+      setMessage(`Expense saved under ${category}.`);
+      setMessageType("success");
     }
 
     setSubmitting(false);
   }
 
   async function deleteExpense(id: number) {
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this expense?",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingId(id);
+
     const { error } = await supabase
       .from("expenses")
       .delete()
@@ -164,14 +273,17 @@ export default function Home() {
     if (error) {
       console.error(error);
       setMessage(`Could not delete expense: ${error.message}`);
-      return;
+      setMessageType("error");
+    } else {
+      setExpenses((currentExpenses) =>
+        currentExpenses.filter((expense) => expense.id !== id),
+      );
+
+      setMessage("Expense deleted.");
+      setMessageType("success");
     }
 
-    setExpenses((currentExpenses) =>
-      currentExpenses.filter((expense) => expense.id !== id),
-    );
-
-    setMessage("Expense deleted.");
+    setDeletingId(null);
   }
 
   const totalSpent = useMemo(() => {
@@ -180,6 +292,37 @@ export default function Home() {
       0,
     );
   }, [expenses]);
+
+  const today = formatLocalDate(new Date());
+  const startOfWeek = getStartOfWeek();
+  const startOfMonth = getStartOfMonth();
+
+  const todaySpent = useMemo(() => {
+    return expenses
+      .filter((expense) => expense.expense_date === today)
+      .reduce(
+        (total, expense) => total + Number(expense.amount),
+        0,
+      );
+  }, [expenses, today]);
+
+  const weekSpent = useMemo(() => {
+    return expenses
+      .filter((expense) => expense.expense_date >= startOfWeek)
+      .reduce(
+        (total, expense) => total + Number(expense.amount),
+        0,
+      );
+  }, [expenses, startOfWeek]);
+
+  const monthSpent = useMemo(() => {
+    return expenses
+      .filter((expense) => expense.expense_date >= startOfMonth)
+      .reduce(
+        (total, expense) => total + Number(expense.amount),
+        0,
+      );
+  }, [expenses, startOfMonth]);
 
   const categoryTotals = useMemo(() => {
     return expenses.reduce<Record<string, number>>((totals, expense) => {
@@ -190,141 +333,397 @@ export default function Home() {
     }, {});
   }, [expenses]);
 
+  const sortedCategories = useMemo(() => {
+    return Object.entries(categoryTotals).sort(
+      ([, firstAmount], [, secondAmount]) =>
+        secondAmount - firstAmount,
+    );
+  }, [categoryTotals]);
+
+  const topCategory = sortedCategories[0];
+
+  const summaryCards = [
+    {
+      label: "Today",
+      value: todaySpent,
+      note: "Current day",
+      icon: "☀️",
+      background:
+        "bg-gradient-to-br from-blue-500 to-cyan-400",
+    },
+    {
+      label: "This Week",
+      value: weekSpent,
+      note: "Since Monday",
+      icon: "📅",
+      background:
+        "bg-gradient-to-br from-violet-500 to-purple-500",
+    },
+    {
+      label: "This Month",
+      value: monthSpent,
+      note: "Current month",
+      icon: "📊",
+      background:
+        "bg-gradient-to-br from-emerald-500 to-teal-400",
+    },
+    {
+      label: "All Time",
+      value: totalSpent,
+      note: `${expenses.length} transactions`,
+      icon: "💰",
+      background:
+        "bg-gradient-to-br from-orange-500 to-amber-400",
+    },
+  ];
+
   return (
-    <main className="min-h-screen bg-gray-100 p-6 text-gray-900">
-      <div className="mx-auto max-w-6xl">
-        <h1 className="text-3xl font-bold">Expense Tracker</h1>
+    <main className="min-h-screen bg-slate-100 text-slate-900">
+      <header className="bg-slate-950">
+        <div className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
+          <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+            <div>
+              <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-slate-200">
+                <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                Telegram connected
+              </div>
 
-        <p className="mt-2 text-gray-600">
-          Track your daily expenses and category spending.
-        </p>
+              <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                Expense Tracker
+              </h1>
 
-        <form
-          onSubmit={addExpense}
-          className="mt-8 grid gap-4 rounded-xl bg-white p-6 shadow md:grid-cols-3"
-        >
-          <div>
-            <label
-              htmlFor="amount"
-              className="mb-2 block text-sm font-medium"
-            >
-              Amount
-            </label>
-
-            <input
-              id="amount"
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={amount}
-              onChange={(event) => setAmount(event.target.value)}
-              placeholder="100"
-              required
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-gray-900"
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="description"
-              className="mb-2 block text-sm font-medium"
-            >
-              Description
-            </label>
-
-            <input
-              id="description"
-              type="text"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="Fried rice"
-              required
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-gray-900"
-            />
-          </div>
-
-          <div className="flex items-end">
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full rounded-lg bg-gray-900 px-4 py-3 font-semibold text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-400"
-            >
-              {submitting ? "Saving..." : "Add Expense"}
-            </button>
-          </div>
-        </form>
-
-        {message && (
-          <p className="mt-4 rounded-lg bg-white p-3 text-sm shadow">
-            {message}
-          </p>
-        )}
-
-        <div className="mt-8 grid gap-4 md:grid-cols-3">
-          <div className="rounded-xl bg-white p-6 shadow">
-            <p className="text-sm text-gray-500">Total Spent</p>
-            <p className="mt-2 text-3xl font-bold">
-              {formatCurrency(totalSpent)}
-            </p>
-          </div>
-
-          {Object.entries(categoryTotals).map(([category, total]) => (
-            <div
-              key={category}
-              className="rounded-xl bg-white p-6 shadow"
-            >
-              <p className="text-sm text-gray-500">{category}</p>
-              <p className="mt-2 text-3xl font-bold">
-                {formatCurrency(total)}
+              <p className="mt-2 text-sm text-slate-400 sm:text-base">
+                Track spending from the web or your Telegram bot.
               </p>
             </div>
-          ))}
-        </div>
 
-        <div className="mt-8 rounded-xl bg-white p-6 shadow">
-          <h2 className="text-xl font-semibold">Recent Expenses</h2>
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                Top category
+              </p>
+
+              <p className="mt-1 text-lg font-semibold text-white">
+                {topCategory
+                  ? `${categoryStyles[topCategory[0]]?.icon ?? "📦"} ${
+                      topCategory[0]
+                    }`
+                  : "No spending yet"}
+              </p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-7xl px-5 py-8 sm:px-8">
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {summaryCards.map((card) => (
+            <div
+              key={card.label}
+              className={`${card.background} rounded-2xl p-5 text-white shadow-lg shadow-slate-200`}
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-sm font-medium text-white/80">
+                    {card.label}
+                  </p>
+
+                  <p className="mt-3 text-2xl font-bold tracking-tight">
+                    {formatCurrency(card.value)}
+                  </p>
+
+                  <p className="mt-2 text-xs text-white/75">
+                    {card.note}
+                  </p>
+                </div>
+
+                <div className="rounded-xl bg-white/20 p-3 text-xl">
+                  {card.icon}
+                </div>
+              </div>
+            </div>
+          ))}
+        </section>
+
+        <section className="mt-8 grid gap-6 lg:grid-cols-[1fr_1.4fr]">
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div>
+              <p className="text-sm font-medium text-violet-600">
+                Quick entry
+              </p>
+
+              <h2 className="mt-1 text-xl font-bold">
+                Add a new expense
+              </h2>
+
+              <p className="mt-1 text-sm text-slate-500">
+                The category will be detected automatically.
+              </p>
+            </div>
+
+            <form onSubmit={addExpense} className="mt-6 space-y-5">
+              <div>
+                <label
+                  htmlFor="amount"
+                  className="mb-2 block text-sm font-semibold text-slate-700"
+                >
+                  Amount
+                </label>
+
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 font-semibold text-slate-400">
+                    ₹
+                  </span>
+
+                  <input
+                    id="amount"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={amount}
+                    onChange={(event) => setAmount(event.target.value)}
+                    placeholder="0.00"
+                    required
+                    className="w-full rounded-xl border border-slate-300 bg-slate-50 py-3.5 pl-9 pr-4 outline-none transition focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-100"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="description"
+                  className="mb-2 block text-sm font-semibold text-slate-700"
+                >
+                  Description
+                </label>
+
+                <input
+                  id="description"
+                  type="text"
+                  value={description}
+                  onChange={(event) =>
+                    setDescription(event.target.value)
+                  }
+                  placeholder="Example: Fried rice"
+                  required
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3.5 outline-none transition focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-100"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full rounded-xl bg-slate-950 px-5 py-3.5 font-semibold text-white shadow-lg shadow-slate-200 transition hover:bg-violet-600 disabled:cursor-not-allowed disabled:bg-slate-400"
+              >
+                {submitting ? "Saving expense..." : "Add expense"}
+              </button>
+            </form>
+
+            {message && (
+              <div
+                aria-live="polite"
+                className={`mt-5 rounded-xl border px-4 py-3 text-sm ${
+                  messageType === "success"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-red-200 bg-red-50 text-red-700"
+                }`}
+              >
+                {message}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-violet-600">
+                  Overview
+                </p>
+
+                <h2 className="mt-1 text-xl font-bold">
+                  Spending by category
+                </h2>
+              </div>
+
+              <div className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600">
+                {sortedCategories.length} categories
+              </div>
+            </div>
+
+            {sortedCategories.length === 0 ? (
+              <div className="flex min-h-72 items-center justify-center">
+                <div className="text-center">
+                  <div className="text-4xl">📊</div>
+                  <p className="mt-3 font-semibold text-slate-700">
+                    No category data yet
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Add an expense to see your breakdown.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-7 space-y-6">
+                {sortedCategories.map(([category, total]) => {
+                  const style =
+                    categoryStyles[category] ?? categoryStyles.Other;
+
+                  const percentage =
+                    totalSpent > 0
+                      ? Math.round((total / totalSpent) * 100)
+                      : 0;
+
+                  return (
+                    <div key={category}>
+                      <div className="mb-2 flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-lg">
+                            {style.icon}
+                          </div>
+
+                          <div>
+                            <p className="font-semibold text-slate-800">
+                              {category}
+                            </p>
+
+                            <p className="text-xs text-slate-500">
+                              {percentage}% of total spending
+                            </p>
+                          </div>
+                        </div>
+
+                        <p className="font-bold text-slate-900">
+                          {formatCurrency(total)}
+                        </p>
+                      </div>
+
+                      <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className={`h-full rounded-full ${style.bar}`}
+                          style={{
+                            width: `${Math.max(percentage, 3)}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="mt-8 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col justify-between gap-3 border-b border-slate-200 px-6 py-5 sm:flex-row sm:items-center">
+            <div>
+              <p className="text-sm font-medium text-violet-600">
+                Activity
+              </p>
+
+              <h2 className="mt-1 text-xl font-bold">
+                Recent expenses
+              </h2>
+            </div>
+
+            <p className="text-sm text-slate-500">
+              Latest transactions from web and Telegram
+            </p>
+          </div>
 
           {loading ? (
-            <p className="mt-4 text-gray-500">Loading expenses...</p>
+            <div className="flex min-h-64 items-center justify-center">
+              <div className="text-center">
+                <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-violet-600" />
+                <p className="mt-3 text-sm text-slate-500">
+                  Loading expenses...
+                </p>
+              </div>
+            </div>
           ) : expenses.length === 0 ? (
-            <p className="mt-4 text-gray-500">
-              No expenses added yet.
-            </p>
+            <div className="flex min-h-64 items-center justify-center">
+              <div className="text-center">
+                <div className="text-4xl">🧾</div>
+                <p className="mt-3 font-semibold text-slate-700">
+                  No expenses added
+                </p>
+                <p className="mt-1 text-sm text-slate-500">
+                  Add your first expense using the form or Telegram.
+                </p>
+              </div>
+            </div>
           ) : (
-            <div className="mt-4 space-y-3">
-              {expenses.map((expense) => (
-                <div
-                  key={expense.id}
-                  className="flex items-center justify-between rounded-lg border border-gray-200 p-4"
-                >
-                  <div>
-                    <p className="font-semibold">
-                      {expense.description}
-                    </p>
+            <div className="divide-y divide-slate-100">
+              {expenses.map((expense) => {
+                const style =
+                  categoryStyles[expense.category] ??
+                  categoryStyles.Other;
 
-                    <p className="text-sm text-gray-500">
-                      {expense.category} · {expense.expense_date}
-                    </p>
+                return (
+                  <div
+                    key={expense.id}
+                    className="flex flex-col gap-4 px-6 py-5 transition hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-xl">
+                        {style.icon}
+                      </div>
+
+                      <div>
+                        <p className="font-semibold capitalize text-slate-900">
+                          {expense.description}
+                        </p>
+
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${style.badge}`}
+                          >
+                            {expense.category}
+                          </span>
+
+                          <span className="text-xs text-slate-400">
+                            {displayDate(expense.expense_date)}
+                          </span>
+
+                          <span className="text-xs text-slate-400">
+                            •
+                          </span>
+
+                          <span className="text-xs capitalize text-slate-500">
+                            {expense.source === "telegram"
+                              ? "Telegram"
+                              : "Web"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-5 sm:justify-end">
+                      <p className="text-lg font-bold text-slate-900">
+                        {formatCurrency(Number(expense.amount))}
+                      </p>
+
+                      <button
+                        type="button"
+                        disabled={deletingId === expense.id}
+                        onClick={() =>
+                          void deleteExpense(expense.id)
+                        }
+                        className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {deletingId === expense.id
+                          ? "Deleting..."
+                          : "Delete"}
+                      </button>
+                    </div>
                   </div>
-
-                  <div className="flex items-center gap-4">
-                    <p className="font-bold">
-                      {formatCurrency(Number(expense.amount))}
-                    </p>
-
-                    <button
-                      type="button"
-                      onClick={() => void deleteExpense(expense.id)}
-                      className="text-sm font-medium text-red-600 hover:underline"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
-        </div>
+        </section>
+
+        <footer className="py-8 text-center text-sm text-slate-400">
+          Expense Tracker · Synced with Supabase and Telegram
+        </footer>
       </div>
     </main>
   );
