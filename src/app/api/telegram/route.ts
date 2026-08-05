@@ -1,4 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
+import {
+  isDebtIntent,
+  normalizePersonName,
+  parseDebtInput,
+  type DebtParseFailureReason,
+  type DebtType,
+} from "@/lib/telegram-debt-parser";
 
 type TelegramUpdate = {
   update_id: number;
@@ -21,110 +28,11 @@ type Expense = {
   expense_date: string;
 };
 
-type DebtType = "LENT" | "BORROWED";
-
 type Debt = {
   amount: number | string;
   person_name: string;
   record_type: DebtType;
   status: "OPEN" | "SETTLED";
-};
-
-type ParsedDebt = {
-  amount: number;
-  personName: string;
-  recordType: DebtType;
-  moneyDate: string;
-};
-
-const amountPattern = "([0-9][0-9,]*(?:\\.[0-9]{1,2})?)";
-const currencyBeforePattern = "(?:₹\\s*|rs\\.?\\s*|inr\\s*)?";
-const currencyAfterPattern = "(?:\\s*(?:rs\\.?|inr|rupees?))?";
-
-const debtPatterns: Array<{
-  pattern: RegExp;
-  recordType: DebtType;
-  amountGroup: number;
-  personGroup: number;
-  dateGroup: number;
-}> = [
-  {
-    pattern: new RegExp(
-      `^i\\s+(?:borrowed|borrow)\\s+(?:money\\s+)?${currencyBeforePattern}${amountPattern}${currencyAfterPattern}\\s+from\\s+(.+?)(?:\\s+on\\s+(.+))?$`,
-      "i",
-    ),
-    recordType: "BORROWED",
-    amountGroup: 1,
-    personGroup: 2,
-    dateGroup: 3,
-  },
-  {
-    pattern: new RegExp(
-      `^i\\s+(?:lent|leant|lend)\\s+(?:money\\s+)?${currencyBeforePattern}${amountPattern}${currencyAfterPattern}\\s+to\\s+(.+?)(?:\\s+on\\s+(.+))?$`,
-      "i",
-    ),
-    recordType: "LENT",
-    amountGroup: 1,
-    personGroup: 2,
-    dateGroup: 3,
-  },
-  {
-    pattern: new RegExp(
-      `^(.+?)\\s+borrowed\\s+(?:money\\s+)?${currencyBeforePattern}${amountPattern}${currencyAfterPattern}\\s+from\\s+me(?:\\s+on\\s+(.+))?$`,
-      "i",
-    ),
-    recordType: "LENT",
-    amountGroup: 2,
-    personGroup: 1,
-    dateGroup: 3,
-  },
-  {
-    pattern: new RegExp(
-      `^(?:borrowed|borrow)\\s+${currencyBeforePattern}${amountPattern}${currencyAfterPattern}\\s+(?:from\\s+)?(.+?)(?:\\s+on\\s+(.+))?$`,
-      "i",
-    ),
-    recordType: "BORROWED",
-    amountGroup: 1,
-    personGroup: 2,
-    dateGroup: 3,
-  },
-  {
-    pattern: new RegExp(
-      `^(?:lent|leant|lend)\\s+${currencyBeforePattern}${amountPattern}${currencyAfterPattern}\\s+(?:to\\s+)?(.+?)(?:\\s+on\\s+(.+))?$`,
-      "i",
-    ),
-    recordType: "LENT",
-    amountGroup: 1,
-    personGroup: 2,
-    dateGroup: 3,
-  },
-];
-
-const monthNumbers: Record<string, number> = {
-  jan: 1,
-  january: 1,
-  feb: 2,
-  february: 2,
-  mar: 3,
-  march: 3,
-  apr: 4,
-  april: 4,
-  may: 5,
-  jun: 6,
-  june: 6,
-  jul: 7,
-  july: 7,
-  aug: 8,
-  august: 8,
-  sep: 9,
-  sept: 9,
-  september: 9,
-  oct: 10,
-  october: 10,
-  nov: 11,
-  november: 11,
-  dec: 12,
-  december: 12,
 };
 
 function getSupabaseClient() {
@@ -230,141 +138,6 @@ function parseExpense(text: string) {
   };
 }
 
-function formatDateParts(year: number, month: number, day: number) {
-  const candidate = new Date(Date.UTC(year, month - 1, day));
-
-  if (
-    candidate.getUTCFullYear() !== year ||
-    candidate.getUTCMonth() !== month - 1 ||
-    candidate.getUTCDate() !== day
-  ) {
-    return null;
-  }
-
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-}
-
-function parseMoneyDate(value?: string): string | null {
-  if (!value) {
-    return getToday();
-  }
-
-  const normalized = value
-    .trim()
-    .toLowerCase()
-    .replace(/,/g, " ")
-    .replace(/(\d+)(?:st|nd|rd|th)\b/g, "$1")
-    .replace(/\s+/g, " ");
-
-  if (normalized === "today") {
-    return getToday();
-  }
-
-  if (normalized === "yesterday") {
-    const yesterday = new Date();
-    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-    return yesterday.toISOString().slice(0, 10);
-  }
-
-  const isoMatch = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-
-  if (isoMatch) {
-    return formatDateParts(
-      Number(isoMatch[1]),
-      Number(isoMatch[2]),
-      Number(isoMatch[3]),
-    );
-  }
-
-  const numericMatch = normalized.match(
-    /^(\d{1,2})[/-](\d{1,2})(?:[/-](\d{4}))?$/,
-  );
-
-  if (numericMatch) {
-    return formatDateParts(
-      numericMatch[3]
-        ? Number(numericMatch[3])
-        : new Date().getUTCFullYear(),
-      Number(numericMatch[2]),
-      Number(numericMatch[1]),
-    );
-  }
-
-  const words = normalized.split(" ");
-  const monthIndex = words.findIndex((word) => monthNumbers[word]);
-
-  if (monthIndex === -1) {
-    return null;
-  }
-
-  const month = monthNumbers[words[monthIndex]];
-  const dayWord = words[monthIndex - 1] ?? words[monthIndex + 1];
-  const yearWord = words.find((word, index) => {
-    return index !== monthIndex && /^\d{4}$/.test(word);
-  });
-  const day = Number(dayWord);
-  const year = yearWord
-    ? Number(yearWord)
-    : new Date().getUTCFullYear();
-
-  if (!Number.isInteger(day)) {
-    return null;
-  }
-
-  return formatDateParts(year, month, day);
-}
-
-function parseDebt(text: string): ParsedDebt | null {
-  const trimmedText = text.trim();
-  const normalizedText = /\s+on\s+(?:today|yesterday)$/i.test(
-    trimmedText,
-  )
-    ? trimmedText
-    : trimmedText.replace(/\s+(today|yesterday)$/i, " on $1");
-
-  for (const debtPattern of debtPatterns) {
-    const match = normalizedText.match(debtPattern.pattern);
-
-    if (!match) {
-      continue;
-    }
-
-    const amount = Number(
-      match[debtPattern.amountGroup].replace(/,/g, ""),
-    );
-    const personName = match[debtPattern.personGroup]
-      .trim()
-      .replace(/\s+/g, " ");
-    const moneyDate = parseMoneyDate(match[debtPattern.dateGroup]);
-
-    if (
-      !Number.isFinite(amount) ||
-      amount <= 0 ||
-      !personName ||
-      !moneyDate
-    ) {
-      return null;
-    }
-
-    return {
-      amount,
-      personName,
-      recordType: debtPattern.recordType,
-      moneyDate,
-    };
-  }
-
-  return null;
-}
-
-function isDebtIntent(text: string): boolean {
-  return /\b(?:borrowed|borrow|lent|leant|lend|loaned)\b/i.test(text);
-}
-
-function normalizePersonName(name: string): string {
-  return name.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-IN");
-}
-
 function formatMoneyDate(date: string): string {
   return new Intl.DateTimeFormat("en-IN", {
     day: "numeric",
@@ -372,6 +145,34 @@ function formatMoneyDate(date: string): string {
     year: "numeric",
     timeZone: "UTC",
   }).format(new Date(`${date}T00:00:00Z`));
+}
+
+function buildDebtInputError(reason: DebtParseFailureReason): string {
+  const guidance: Record<DebtParseFailureReason, string> = {
+    not_debt: "I could not understand that message.",
+    missing_amount:
+      "Please include the amount, such as: borrowed 500 Rahul",
+    missing_person:
+      "Please include the person's name, such as: lent 700 Bhavya",
+    invalid_amount:
+      "Use a positive amount with up to two decimal places, such as ₹1,250.50.",
+    invalid_date:
+      "I could not understand that date. Try today, yesterday, 13th July, 13/07/2026, or 2026-07-13.",
+    unrecognized_format:
+      "I recognized this as borrowed/lent money, but not the sentence format.",
+  };
+
+  return [
+    guidance[reason],
+    "",
+    "Examples:",
+    "borrowed 500 Rahul",
+    "lent 700 Bhavya",
+    "I owe Rahul 500",
+    "Bhavya owes me 700",
+    "I borrowed ₹1,000 from Rahul yesterday",
+    "I lent 500 to Bhavya on 13th July",
+  ].join("\n");
 }
 
 function getPersonBalance(debts: Debt[], personName: string): number {
@@ -526,9 +327,9 @@ async function handleCommand(
         "Track borrowed or lent money:",
         "borrowed 500 Rahul",
         "lent 700 Bhavya",
-        "I borrowed 1000rs from Bhavya",
-        "I lent 500rs to Bhavya on 13th July",
-        "Bhavya borrowed 500rs from me",
+        "I owe Rahul 1.5k",
+        "Bhavya owes me 700",
+        "I lent 500rs to Bhavya for lunch yesterday",
         "",
         "Available commands:",
         "/today — today's spending",
@@ -656,22 +457,27 @@ export async function POST(request: Request) {
     const telegramUserId = message.from.id;
 
     if (text.startsWith("/")) {
-      const command = text.split(" ")[0].toLowerCase();
+      const command = text
+        .split(/\s+/)[0]
+        .split("@")[0]
+        .toLowerCase();
 
       await handleCommand(command, chatId, telegramUserId);
 
       return Response.json({ ok: true });
     }
 
-    const parsedDebt = parseDebt(text);
+    const debtResult = parseDebtInput(text);
 
-    if (parsedDebt) {
+    if (debtResult.ok) {
+      const parsedDebt = debtResult.value;
       const supabase = getSupabaseClient();
 
       const { error } = await supabase.from("debts").insert({
         record_type: parsedDebt.recordType,
         person_name: parsedDebt.personName,
         amount: parsedDebt.amount,
+        description: parsedDebt.description,
         due_date: parsedDebt.moneyDate,
         status: "OPEN",
       });
@@ -720,6 +526,9 @@ export async function POST(request: Request) {
             ? `${parsedDebt.personName} borrowed ${formatCurrency(parsedDebt.amount)} from you.`
             : `You borrowed ${formatCurrency(parsedDebt.amount)} from ${parsedDebt.personName}.`,
           `Date: ${formatMoneyDate(parsedDebt.moneyDate)}`,
+          ...(parsedDebt.description
+            ? [`Note: ${parsedDebt.description}`]
+            : []),
           "",
           balanceLine,
         ].join("\n"),
@@ -731,16 +540,7 @@ export async function POST(request: Request) {
     if (isDebtIntent(text)) {
       await sendTelegramMessage(
         chatId,
-        [
-          "Please include the amount, person and direction.",
-          "",
-          "Examples:",
-          "borrowed 500 Rahul",
-          "lent 700 Bhavya",
-          "I borrowed 1000rs from Bhavya",
-          "I lent 500rs to Bhavya on 13th July",
-          "Bhavya borrowed 500rs from me",
-        ].join("\n"),
+        buildDebtInputError(debtResult.reason),
       );
 
       return Response.json({ ok: true });
