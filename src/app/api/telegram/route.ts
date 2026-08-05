@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 type TelegramUpdate = {
+  update_id: number;
   message?: {
     text?: string;
     chat: {
@@ -156,16 +157,28 @@ export async function POST(request: Request) {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const { error } = await supabase.from("expenses").insert({
-      amount: parsedExpense.amount,
-      description: parsedExpense.description,
-      category: parsedExpense.category,
-      source: "telegram",
-      telegram_user_id: message.from?.id ?? null,
-    });
+  amount: parsedExpense.amount,
+  description: parsedExpense.description,
+  category: parsedExpense.category,
+  source: "telegram",
+  telegram_user_id: message.from?.id ?? null,
+  telegram_update_id: update.update_id,
+});
 
-    if (error) {
-      throw error;
-    }
+    if (error?.code === "23505") {
+  console.log(
+    `Duplicate Telegram update ignored: ${update.update_id}`,
+  );
+
+  return Response.json({
+    ok: true,
+    duplicate: true,
+  });
+}
+
+if (error) {
+  throw error;
+}
 
     await sendTelegramMessage(
       message.chat.id,
