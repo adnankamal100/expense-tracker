@@ -97,19 +97,32 @@ async function sendTelegramMessage(chatId: number, text: string) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
 
   if (!token) {
-    throw new Error("Telegram bot token is missing.");
+    throw new Error("TELEGRAM_BOT_TOKEN is missing.");
   }
 
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+  const response = await fetch(
+    `https://api.telegram.org/bot${token}/sendMessage`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+      }),
     },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
-    }),
-  });
+  );
+
+  const result = await response.json();
+
+  console.log("Telegram sendMessage response:", result);
+
+  if (!response.ok || !result.ok) {
+    throw new Error(
+      `Telegram reply failed: ${result.description ?? "Unknown error"}`,
+    );
+  }
 }
 
 export async function POST(request: Request) {
