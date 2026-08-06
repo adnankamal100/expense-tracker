@@ -27,6 +27,7 @@ test("detects every supported expense category", () => {
     ["Dinner at a restaurant", "Food"],
     ["Groceries from supermarket", "Groceries"],
     ["Uber to office", "Transport"],
+    ["BMTC", "Transport"],
     ["Electricity bill", "Bills"],
     ["Monthly house rent", "Housing"],
     ["Bought shoes on Flipkart", "Shopping"],

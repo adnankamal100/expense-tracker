@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { detectExpenseCategory } from "@/lib/expense-categories";
+import { createIphoneImportToken } from "@/lib/iphone-import-auth";
 import {
   isDebtIntent,
   parseDebtInput,
@@ -29,6 +30,7 @@ type TelegramMessage = {
   text?: string;
   chat: {
     id: number;
+    type?: string;
   };
   from?: {
     id: number;
@@ -357,6 +359,8 @@ async function handleCommand(
   commandArguments: string,
   chatId: number,
   telegramUserId: number,
+  chatType: string | undefined,
+  appOrigin: string,
 ) {
   const supabase = getSupabaseClient();
 
@@ -384,6 +388,7 @@ async function handleCommand(
         "/recent — latest expenses",
         "/debts — tap a person to view outstanding balances",
         "/debts Bhavya — total and individual entries",
+        "/iphone_setup — connect HDFC SMS imports",
         "/help — show this message",
       ].join("\n"),
     );
@@ -427,6 +432,47 @@ async function handleCommand(
       menu.text,
       menu.replyMarkup,
     );
+    return;
+  }
+
+  if (command === "/iphone_setup" || command === "/iphone") {
+    if (chatType !== "private") {
+      await sendTelegramMessage(
+        chatId,
+        "For security, send /iphone_setup to me in a private chat.",
+      );
+      return;
+    }
+
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+
+    if (!botToken) {
+      throw new Error("TELEGRAM_BOT_TOKEN is missing.");
+    }
+
+    const importToken = createIphoneImportToken(
+      botToken,
+      telegramUserId,
+    );
+
+    await sendTelegramMessage(
+      chatId,
+      [
+        "📱 iPhone HDFC SMS import",
+        "",
+        "Endpoint:",
+        `${appOrigin}/api/import/hdfc-sms`,
+        "",
+        "Telegram user ID:",
+        String(telegramUserId),
+        "",
+        "Private import token:",
+        importToken,
+        "",
+        "Keep this token private. It can only import expenses for your Telegram account.",
+      ].join("\n"),
+    );
+
     return;
   }
 
@@ -536,6 +582,8 @@ export async function POST(request: Request) {
         commandArguments,
         chatId,
         telegramUserId,
+        message.chat.type,
+        new URL(request.url).origin,
       );
 
       return Response.json({ ok: true });

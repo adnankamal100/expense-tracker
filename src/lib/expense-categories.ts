@@ -88,6 +88,7 @@ const categoryKeywords: Record<
     "fuel",
     "parking",
     "toll",
+    "bmtc",
   ],
   Bills: [
     "bill",
