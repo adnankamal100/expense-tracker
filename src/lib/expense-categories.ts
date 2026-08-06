@@ -35,6 +35,21 @@ const categoryKeywords: Record<
   readonly string[]
 > = {
   Food: [
+    "bakery",
+    "biryani",
+    "burger",
+    "canteen",
+    "chaat",
+    "curry",
+    "dessert",
+    "dosa",
+    "fast food",
+    "fried rice",
+    "ice cream",
+    "idli",
+    "juice",
+    "pizza",
+    "sandwich",
     "food",
     "meal",
     "meals",
@@ -51,9 +66,24 @@ const categoryKeywords: Record<
     "takeaway",
     "swiggy",
     "zomato",
-    "rice",
+    "dominos",
+    "kfc",
+    "mcdonalds",
+    "pizza hut",
+    "starbucks",
+    "cafe coffee day",
   ],
   Groceries: [
+    "atta",
+    "flour",
+    "wheat",
+    "rice",
+    "dal",
+    "pulse",
+    "lentil",
+    "bean",
+    "chickpea",
+    "rajma",
     "grocery",
     "groceries",
     "supermarket",
@@ -64,12 +94,55 @@ const categoryKeywords: Record<
     "fruit",
     "fruits",
     "milk",
+    "dairy",
+    "curd",
+    "yogurt",
+    "yoghurt",
+    "paneer",
+    "butter",
+    "cheese",
+    "ghee",
     "bread",
     "eggs",
+    "oat",
+    "oats",
+    "oatmeal",
+    "muesli",
+    "cereal",
+    "granola",
+    "cornflakes",
+    "coffee powder",
+    "tea powder",
+    "tea leaves",
+    "cooking oil",
+    "spice",
+    "masala",
+    "salt",
+    "sugar",
+    "biscuit",
+    "cookie",
+    "noodles",
+    "pasta",
+    "sauce",
+    "jam",
+    "honey",
+    "dry fruit",
+    "nut",
+    "almond",
+    "cashew",
+    "chicken",
+    "meat",
+    "fish",
     "bigbasket",
     "blinkit",
     "zepto",
     "instamart",
+    "dmart",
+    "d mart",
+    "reliance fresh",
+    "more supermarket",
+    "lulu hypermarket",
+    "natures basket",
   ],
   Transport: [
     "transport",
@@ -89,6 +162,12 @@ const categoryKeywords: Record<
     "parking",
     "toll",
     "bmtc",
+    "ksrtc",
+    "namma metro",
+    "bus pass",
+    "metro card",
+    "metro recharge",
+    "school bus",
   ],
   Bills: [
     "bill",
@@ -107,6 +186,15 @@ const categoryKeywords: Record<
     "recharge",
     "utility",
     "utilities",
+    "bescom",
+    "postpaid",
+    "prepaid recharge",
+    "dth",
+    "gas cylinder",
+    "act fibernet",
+    "jio recharge",
+    "airtel recharge",
+    "vi recharge",
   ],
   Housing: [
     "rent",
@@ -120,6 +208,13 @@ const categoryKeywords: Record<
     "home repair",
     "house repair",
     "furniture",
+    "home loan",
+    "housing society",
+    "society maintenance",
+    "plumber",
+    "electrician",
+    "carpenter",
+    "home painting",
   ],
   Shopping: [
     "shopping",
@@ -134,6 +229,18 @@ const categoryKeywords: Record<
     "clothing",
     "electronics",
     "appliance",
+    "mobile phone",
+    "laptop",
+    "computer",
+    "headphone",
+    "watch",
+    "bag",
+    "cosmetics",
+    "beauty product",
+    "nykaa",
+    "meesho",
+    "ajio",
+    "ikea",
   ],
   Health: [
     "health",
@@ -148,6 +255,13 @@ const categoryKeywords: Record<
     "medical",
     "lab test",
     "insurance",
+    "apollo pharmacy",
+    "1mg",
+    "netmeds",
+    "pharmeasy",
+    "vitamin",
+    "supplement",
+    "gym",
   ],
   Entertainment: [
     "entertainment",
@@ -159,6 +273,10 @@ const categoryKeywords: Record<
     "concert",
     "bowling",
     "event ticket",
+    "bookmyshow",
+    "pvr",
+    "inox",
+    "amusement park",
   ],
   Subscriptions: [
     "subscription",
@@ -173,6 +291,13 @@ const categoryKeywords: Record<
     "google one",
     "membership",
     "saas",
+    "disney hotstar",
+    "jiocinema",
+    "zee5",
+    "sonyliv",
+    "youtube music",
+    "microsoft 365",
+    "adobe creative cloud",
   ],
   Education: [
     "education",
@@ -189,6 +314,13 @@ const categoryKeywords: Record<
     "stationery",
     "exam fee",
     "school fee",
+    "book",
+    "notebook",
+    "pen",
+    "udemy",
+    "coursera",
+    "unacademy",
+    "byjus",
   ],
   Travel: [
     "travel",
@@ -206,6 +338,14 @@ const categoryKeywords: Record<
     "passport",
     "tour",
     "luggage",
+    "makemytrip",
+    "goibibo",
+    "booking com",
+    "cleartrip",
+    "air india",
+    "indigo flight",
+    "akasa air",
+    "railway reservation",
   ],
 };
 
@@ -216,6 +356,29 @@ function normalizeWords(value: string): string {
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
     .replace(/\s+/g, " ");
+}
+
+function keywordForms(keyword: string): string[] {
+  const words = keyword.split(" ");
+  const lastWord = words.at(-1);
+
+  if (!lastWord || lastWord.length < 2) {
+    return [keyword];
+  }
+
+  let plural: string;
+
+  if (/[^aeiou]y$/i.test(lastWord)) {
+    plural = `${lastWord.slice(0, -1)}ies`;
+  } else if (/(?:ss|us|x|z|ch|sh)$/i.test(lastWord)) {
+    plural = `${lastWord}es`;
+  } else if (lastWord.endsWith("s")) {
+    return [keyword];
+  } else {
+    plural = `${lastWord}s`;
+  }
+
+  return [keyword, [...words.slice(0, -1), plural].join(" ")];
 }
 
 export function detectExpenseCategory(
@@ -235,13 +398,16 @@ export function detectExpenseCategory(
     for (const keyword of categoryKeywords[category]) {
       const normalizedKeyword = normalizeWords(keyword);
 
-      if (!normalizedDescription.includes(` ${normalizedKeyword} `)) {
+      const matchedForm = keywordForms(normalizedKeyword).find((form) =>
+        normalizedDescription.includes(` ${form} `),
+      );
+
+      if (!matchedForm) {
         continue;
       }
 
       const score =
-        normalizedKeyword.split(" ").length * 100 +
-        normalizedKeyword.length;
+        matchedForm.split(" ").length * 100 + matchedForm.length;
 
       if (!bestMatch || score > bestMatch.score) {
         bestMatch = { category, score };

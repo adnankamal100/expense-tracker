@@ -26,6 +26,7 @@ test("detects every supported expense category", () => {
   const cases = [
     ["Dinner at a restaurant", "Food"],
     ["Groceries from supermarket", "Groceries"],
+    ["oats/muesli", "Groceries"],
     ["Uber to office", "Transport"],
     ["BMTC", "Transport"],
     ["Electricity bill", "Bills"],
@@ -53,4 +54,36 @@ test("matches whole words and prefers the most specific phrase", () => {
   assert.equal(detectExpenseCategory("apartment maintenance bill"), "Housing");
   assert.equal(detectExpenseCategory("Netflix movie subscription"), "Subscriptions");
   assert.equal(detectExpenseCategory("restaurant"), "Food");
+});
+
+test("infers products, merchants, punctuation and plural forms", () => {
+  const cases = [
+    ["protein oats and cornflakes", "Groceries"],
+    ["coffee powder/tea leaves", "Groceries"],
+    ["vegetables, lentils & spices", "Groceries"],
+    ["fried rice and chicken biryani", "Food"],
+    ["Swiggy Instamart", "Groceries"],
+    ["school buses", "Transport"],
+    ["BESCOM payment", "Bills"],
+    ["society maintenance", "Housing"],
+    ["laptops and headphones", "Shopping"],
+    ["Apollo Pharmacy vitamins", "Health"],
+    ["BookMyShow", "Entertainment"],
+    ["Microsoft 365", "Subscriptions"],
+    ["Coursera books", "Education"],
+    ["MakeMyTrip flight", "Travel"],
+  ] as const;
+
+  for (const [description, expectedCategory] of cases) {
+    assert.equal(
+      detectExpenseCategory(description),
+      expectedCategory,
+      description,
+    );
+  }
+});
+
+test("does not use partial words as category matches", () => {
+  assert.equal(detectExpenseCategory("trainer"), "Other");
+  assert.equal(detectExpenseCategory("bookmyshow"), "Entertainment");
 });
