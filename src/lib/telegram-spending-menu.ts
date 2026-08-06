@@ -1,3 +1,5 @@
+import { expenseCategoryIcons } from "./expense-categories.ts";
+
 const APP_TIME_ZONE = "Asia/Kolkata";
 
 export type SpendingPeriod = "today" | "week" | "month";
@@ -29,16 +31,6 @@ const periodLabels: Record<SpendingPeriod, string> = {
   today: "Today",
   week: "This week",
   month: "This month",
-};
-
-const categoryIcons: Record<string, string> = {
-  Food: "🍽️",
-  Transport: "🚕",
-  Bills: "🧾",
-  Shopping: "🛍️",
-  Entertainment: "🎬",
-  Health: "💊",
-  Other: "📦",
 };
 
 function formatCurrency(amount: number): string {
@@ -165,7 +157,12 @@ export function buildSpendingMenu(
       const percentage =
         total > 0 ? Math.round((amount / total) * 100) : 0;
 
-      return `${categoryIcons[category] ?? categoryIcons.Other} ${category}: ${formatCurrency(amount)} (${percentage}%)`;
+      const icon =
+        expenseCategoryIcons[
+          category as keyof typeof expenseCategoryIcons
+        ] ?? expenseCategoryIcons.Other;
+
+      return `${icon} ${category}: ${formatCurrency(amount)} (${percentage}%)`;
     });
   const dateRange =
     range.startDate === range.endDate

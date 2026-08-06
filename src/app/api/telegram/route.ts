@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { detectExpenseCategory } from "@/lib/expense-categories";
 import {
   isDebtIntent,
   parseDebtInput,
@@ -81,66 +82,6 @@ function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
-function detectCategory(description: string): string {
-  const text = description.toLowerCase();
-
-  const categories: Record<string, string[]> = {
-    Food: [
-      "food",
-      "rice",
-      "coffee",
-      "tea",
-      "restaurant",
-      "lunch",
-      "dinner",
-      "breakfast",
-    ],
-    Transport: [
-      "auto",
-      "uber",
-      "bus",
-      "train",
-      "petrol",
-      "fuel",
-      "taxi",
-    ],
-    Bills: [
-      "electricity",
-      "internet",
-      "recharge",
-      "rent",
-      "bill",
-    ],
-    Shopping: [
-      "shirt",
-      "shoes",
-      "amazon",
-      "shopping",
-      "clothes",
-    ],
-    Entertainment: [
-      "movie",
-      "netflix",
-      "game",
-      "concert",
-    ],
-    Health: [
-      "medicine",
-      "doctor",
-      "hospital",
-      "pharmacy",
-    ],
-  };
-
-  for (const [category, keywords] of Object.entries(categories)) {
-    if (keywords.some((keyword) => text.includes(keyword))) {
-      return category;
-    }
-  }
-
-  return "Other";
-}
-
 function parseExpense(text: string) {
   const match = text
     .trim()
@@ -160,7 +101,7 @@ function parseExpense(text: string) {
   return {
     amount,
     description,
-    category: detectCategory(description),
+    category: detectExpenseCategory(description),
   };
 }
 

@@ -2,6 +2,10 @@
 import DebtSection from "@/components/DebtSection";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import {
+  detectExpenseCategory,
+  expenseCategoryIcons,
+} from "@/lib/expense-categories";
 
 type Expense = {
   id: number;
@@ -24,61 +28,6 @@ const categoryPeriodOptions: Array<{
   { label: "Month", value: "month" },
 ];
 
-const categoryKeywords: Record<string, string[]> = {
-  Food: [
-    "food",
-    "rice",
-    "coffee",
-    "tea",
-    "restaurant",
-    "lunch",
-    "dinner",
-    "breakfast",
-    "snack",
-  ],
-  Transport: [
-    "auto",
-    "uber",
-    "bus",
-    "train",
-    "petrol",
-    "fuel",
-    "taxi",
-    "metro",
-  ],
-  Bills: [
-    "electricity",
-    "internet",
-    "recharge",
-    "rent",
-    "bill",
-    "water",
-    "wifi",
-  ],
-  Shopping: [
-    "shirt",
-    "shoes",
-    "amazon",
-    "shopping",
-    "clothes",
-    "flipkart",
-  ],
-  Entertainment: [
-    "movie",
-    "netflix",
-    "game",
-    "concert",
-    "spotify",
-  ],
-  Health: [
-    "medicine",
-    "doctor",
-    "hospital",
-    "pharmacy",
-    "clinic",
-  ],
-};
-
 const categoryStyles: Record<
   string,
   {
@@ -88,60 +37,78 @@ const categoryStyles: Record<
   }
 > = {
   Food: {
-    icon: "🍽️",
+    icon: expenseCategoryIcons.Food,
     badge:
       "bg-orange-50 text-orange-700 ring-orange-200 dark:bg-orange-950/50 dark:text-orange-300 dark:ring-orange-800",
     bar: "bg-orange-500",
   },
+  Groceries: {
+    icon: expenseCategoryIcons.Groceries,
+    badge:
+      "bg-lime-50 text-lime-700 ring-lime-200 dark:bg-lime-950/50 dark:text-lime-300 dark:ring-lime-800",
+    bar: "bg-lime-500",
+  },
   Transport: {
-    icon: "🚕",
+    icon: expenseCategoryIcons.Transport,
     badge:
       "bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:ring-blue-800",
     bar: "bg-blue-500",
   },
   Bills: {
-    icon: "🧾",
+    icon: expenseCategoryIcons.Bills,
     badge:
       "bg-purple-50 text-purple-700 ring-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:ring-purple-800",
     bar: "bg-purple-500",
   },
+  Housing: {
+    icon: expenseCategoryIcons.Housing,
+    badge:
+      "bg-teal-50 text-teal-700 ring-teal-200 dark:bg-teal-950/50 dark:text-teal-300 dark:ring-teal-800",
+    bar: "bg-teal-500",
+  },
   Shopping: {
-    icon: "🛍️",
+    icon: expenseCategoryIcons.Shopping,
     badge:
       "bg-pink-50 text-pink-700 ring-pink-200 dark:bg-pink-950/50 dark:text-pink-300 dark:ring-pink-800",
     bar: "bg-pink-500",
   },
   Entertainment: {
-    icon: "🎬",
+    icon: expenseCategoryIcons.Entertainment,
     badge:
       "bg-indigo-50 text-indigo-700 ring-indigo-200 dark:bg-indigo-950/50 dark:text-indigo-300 dark:ring-indigo-800",
     bar: "bg-indigo-500",
   },
   Health: {
-    icon: "💊",
+    icon: expenseCategoryIcons.Health,
     badge:
       "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:ring-emerald-800",
     bar: "bg-emerald-500",
   },
+  Subscriptions: {
+    icon: expenseCategoryIcons.Subscriptions,
+    badge:
+      "bg-cyan-50 text-cyan-700 ring-cyan-200 dark:bg-cyan-950/50 dark:text-cyan-300 dark:ring-cyan-800",
+    bar: "bg-cyan-500",
+  },
+  Education: {
+    icon: expenseCategoryIcons.Education,
+    badge:
+      "bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:ring-amber-800",
+    bar: "bg-amber-500",
+  },
+  Travel: {
+    icon: expenseCategoryIcons.Travel,
+    badge:
+      "bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-950/50 dark:text-sky-300 dark:ring-sky-800",
+    bar: "bg-sky-500",
+  },
   Other: {
-    icon: "📦",
+    icon: expenseCategoryIcons.Other,
     badge:
       "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700",
     bar: "bg-slate-500",
   },
 };
-
-function detectCategory(description: string): string {
-  const text = description.toLowerCase();
-
-  for (const [category, keywords] of Object.entries(categoryKeywords)) {
-    if (keywords.some((keyword) => text.includes(keyword))) {
-      return category;
-    }
-  }
-
-  return "Other";
-}
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("en-IN", {
@@ -287,7 +254,7 @@ export default function Home() {
     setSubmitting(true);
     setMessage("");
 
-    const category = detectCategory(cleanDescription);
+    const category = detectExpenseCategory(cleanDescription);
 
     const { data, error } = await supabase
       .from("expenses")
