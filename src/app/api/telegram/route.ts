@@ -16,6 +16,12 @@ import {
   parseDebtCallbackData,
   type TelegramInlineKeyboardMarkup,
 } from "@/lib/telegram-debt-menu";
+import {
+  buildSpendingMenu,
+  getSpendingDateRange,
+  parseSpendingCallbackData,
+  type SpendingPeriod,
+} from "@/lib/telegram-spending-menu";
 
 type TelegramMessage = {
   message_id?: number;
@@ -268,54 +274,54 @@ async function safelyAnswerTelegramCallbackQuery(
   try {
     await answerTelegramCallbackQuery(callbackQueryId, text);
   } catch (error) {
-    console.error("Could not acknowledge Telegram debt button:", error);
+    console.error("Could not acknowledge Telegram button:", error);
   }
 }
 
-function getToday(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function getFirstDayOfMonth(): string {
+async function getSpendingMenuView(
+  telegramUserId: number,
+  period: SpendingPeriod,
+) {
   const now = new Date();
+  const range = getSpendingDateRange(period, now);
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("expenses")
+    .select("id, amount, description, category, expense_date")
+    .eq("telegram_user_id", telegramUserId)
+    .gte("expense_date", range.startDate)
+    .lte("expense_date", range.endDate);
 
-  return new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
-  )
-    .toISOString()
-    .slice(0, 10);
-}
-
-function buildExpenseSummary(expenses: Expense[]): string {
-  if (expenses.length === 0) {
-    return "No expenses found.";
+  if (error) {
+    throw error;
   }
 
-  const total = expenses.reduce(
-    (sum, expense) => sum + Number(expense.amount),
-    0,
+  return buildSpendingMenu((data ?? []) as Expense[], period, now);
+}
+
+async function handleSpendingCallback(
+  callbackQuery: TelegramCallbackQuery,
+  period: SpendingPeriod,
+) {
+  await safelyAnswerTelegramCallbackQuery(callbackQuery.id);
+
+  const message = callbackQuery.message;
+
+  if (!message?.message_id) {
+    return;
+  }
+
+  const menu = await getSpendingMenuView(
+    callbackQuery.from.id,
+    period,
   );
 
-  const categoryTotals = expenses.reduce<Record<string, number>>(
-    (totals, expense) => {
-      totals[expense.category] =
-        (totals[expense.category] ?? 0) +
-        Number(expense.amount);
-
-      return totals;
-    },
-    {},
+  await editTelegramMessage(
+    message.chat.id,
+    message.message_id,
+    menu.text,
+    menu.replyMarkup,
   );
-
-  const categoryLines = Object.entries(categoryTotals)
-    .sort(([, first], [, second]) => second - first)
-    .map(
-      ([category, amount]) =>
-        `${category}: ${formatCurrency(amount)}`,
-    )
-    .join("\n");
-
-  return `Total: ${formatCurrency(total)}\n\n${categoryLines}`;
 }
 
 async function fetchOpenDebts(): Promise<Debt[]> {
@@ -430,8 +436,10 @@ async function handleCommand(
         "I lent 500rs to Bhavya for lunch yesterday",
         "",
         "Available commands:",
-        "/today — today's spending",
-        "/month — this month's spending",
+        "/spending — choose Today, Week, or Month",
+        "/today — today's category overview",
+        "/week — this week's category overview",
+        "/month — this month's category overview",
         "/recent — latest expenses",
         "/debts — tap a person to view outstanding balances",
         "/debts Bhavya — total and individual entries",
@@ -442,45 +450,42 @@ async function handleCommand(
     return;
   }
 
-  if (command === "/today") {
-    const { data, error } = await supabase
-      .from("expenses")
-      .select("id, amount, description, category, expense_date")
-      .eq("telegram_user_id", telegramUserId)
-      .eq("expense_date", getToday());
+  const commandPeriods: Partial<Record<string, SpendingPeriod>> = {
+    "/today": "today",
+    "/week": "week",
+    "/month": "month",
+  };
+  let spendingPeriod = commandPeriods[command];
 
-    if (error) {
-      throw error;
+  if (command === "/spending") {
+    const requestedPeriod = commandArguments.toLowerCase();
+
+    if (
+      requestedPeriod &&
+      !["today", "week", "month"].includes(requestedPeriod)
+    ) {
+      await sendTelegramMessage(
+        chatId,
+        "Use /spending, /spending today, /spending week, or /spending month.",
+      );
+      return;
     }
 
-    const summary = buildExpenseSummary((data ?? []) as Expense[]);
-
-    await sendTelegramMessage(
-      chatId,
-      `📅 Today's spending\n\n${summary}`,
-    );
-
-    return;
+    spendingPeriod =
+      (requestedPeriod as SpendingPeriod | "") || "month";
   }
 
-  if (command === "/month") {
-    const { data, error } = await supabase
-      .from("expenses")
-      .select("id, amount, description, category, expense_date")
-      .eq("telegram_user_id", telegramUserId)
-      .gte("expense_date", getFirstDayOfMonth());
-
-    if (error) {
-      throw error;
-    }
-
-    const summary = buildExpenseSummary((data ?? []) as Expense[]);
+  if (spendingPeriod) {
+    const menu = await getSpendingMenuView(
+      telegramUserId,
+      spendingPeriod,
+    );
 
     await sendTelegramMessage(
       chatId,
-      `📊 This month's spending\n\n${summary}`,
+      menu.text,
+      menu.replyMarkup,
     );
-
     return;
   }
 
@@ -557,7 +562,16 @@ export async function POST(request: Request) {
     const callbackQuery = update.callback_query;
 
     if (callbackQuery) {
-      await handleDebtCallback(callbackQuery);
+      const spendingPeriod = parseSpendingCallbackData(
+        callbackQuery.data ?? "",
+      );
+
+      if (spendingPeriod) {
+        await handleSpendingCallback(callbackQuery, spendingPeriod);
+      } else {
+        await handleDebtCallback(callbackQuery);
+      }
+
       return Response.json({ ok: true });
     }
 
@@ -702,6 +716,7 @@ export async function POST(request: Request) {
       source: "telegram",
       telegram_user_id: telegramUserId,
       telegram_update_id: update.update_id,
+      expense_date: getSpendingDateRange("today").endDate,
     });
 
     if (error?.code === "23505") {

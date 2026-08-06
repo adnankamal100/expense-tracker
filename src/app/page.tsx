@@ -296,6 +296,7 @@ export default function Home() {
         description: cleanDescription,
         category,
         source: "web",
+        expense_date: formatLocalDate(new Date()),
       })
       .select()
       .single();
