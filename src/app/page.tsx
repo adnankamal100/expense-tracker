@@ -13,6 +13,17 @@ type Expense = {
   created_at: string;
 };
 
+type CategoryPeriod = "today" | "week" | "month";
+
+const categoryPeriodOptions: Array<{
+  label: string;
+  value: CategoryPeriod;
+}> = [
+  { label: "Today", value: "today" },
+  { label: "Week", value: "week" },
+  { label: "Month", value: "month" },
+];
+
 const categoryKeywords: Record<string, string[]> = {
   Food: [
     "food",
@@ -188,6 +199,8 @@ export default function Home() {
   );
   const [darkMode, setDarkMode] = useState(false);
   const [themeLoaded, setThemeLoaded] = useState(false);
+  const [categoryPeriod, setCategoryPeriod] =
+    useState<CategoryPeriod>("month");
 
   useEffect(() => {
     let cancelled = false;
@@ -376,15 +389,40 @@ export default function Home() {
       );
   }, [expenses, startOfMonth]);
 
-  const categoryTotals = useMemo(() => {
-    return expenses.reduce<Record<string, number>>((totals, expense) => {
-      totals[expense.category] =
-        (totals[expense.category] ?? 0) +
-        Number(expense.amount);
+  const categoryPeriodStart =
+    categoryPeriod === "today"
+      ? today
+      : categoryPeriod === "week"
+        ? startOfWeek
+        : startOfMonth;
 
-      return totals;
-    }, {});
-  }, [expenses]);
+  const categoryExpenses = useMemo(() => {
+    return expenses.filter(
+      (expense) =>
+        expense.expense_date >= categoryPeriodStart &&
+        expense.expense_date <= today,
+    );
+  }, [categoryPeriodStart, expenses, today]);
+
+  const categoryPeriodTotal = useMemo(() => {
+    return categoryExpenses.reduce(
+      (total, expense) => total + Number(expense.amount),
+      0,
+    );
+  }, [categoryExpenses]);
+
+  const categoryTotals = useMemo(() => {
+    return categoryExpenses.reduce<Record<string, number>>(
+      (totals, expense) => {
+        totals[expense.category] =
+          (totals[expense.category] ?? 0) +
+          Number(expense.amount);
+
+        return totals;
+      },
+      {},
+    );
+  }, [categoryExpenses]);
 
   const sortedCategories = useMemo(() => {
     return Object.entries(categoryTotals).sort(
@@ -394,6 +432,14 @@ export default function Home() {
   }, [categoryTotals]);
 
   const topCategory = sortedCategories[0];
+  const selectedCategoryPeriod =
+    categoryPeriodOptions.find(
+      (option) => option.value === categoryPeriod,
+    ) ?? categoryPeriodOptions[2];
+  const categoryPeriodRange =
+    categoryPeriodStart === today
+      ? displayDate(today)
+      : `${displayDate(categoryPeriodStart)} – ${displayDate(today)}`;
 
   const summaryCards = [
     {
@@ -471,7 +517,7 @@ export default function Home() {
 
               <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4">
                 <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
-                  Top category
+                  Top category · {selectedCategoryPeriod.label}
                 </p>
 
                 <p className="mt-1 text-lg font-semibold text-white">
@@ -479,7 +525,13 @@ export default function Home() {
                     ? `${
                         categoryStyles[topCategory[0]]?.icon ?? "📦"
                       } ${topCategory[0]}`
-                    : "No spending yet"}
+                    : `No spending ${
+                        categoryPeriod === "today"
+                          ? "today"
+                          : categoryPeriod === "week"
+                            ? "this week"
+                            : "this month"
+                      }`}
                 </p>
               </div>
             </div>
@@ -604,7 +656,7 @@ export default function Home() {
           </div>
 
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-900">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-sm font-medium text-violet-600 dark:text-violet-400">
                   Overview
@@ -615,8 +667,41 @@ export default function Home() {
                 </h2>
               </div>
 
-              <div className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                {sortedCategories.length} categories
+              <div className="flex flex-col gap-2 sm:items-end">
+                <div
+                  role="group"
+                  aria-label="Spending by category period"
+                  className="inline-flex rounded-xl bg-slate-100 p-1 dark:bg-slate-800"
+                >
+                  {categoryPeriodOptions.map((option) => {
+                    const selected = categoryPeriod === option.value;
+
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => setCategoryPeriod(option.value)}
+                        className={`rounded-lg px-3 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 ${
+                          selected
+                            ? "bg-slate-950 text-white shadow-sm dark:bg-violet-600"
+                            : "text-slate-600 hover:bg-white hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-white"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                  {sortedCategories.length}{" "}
+                  {sortedCategories.length === 1
+                    ? "category"
+                    : "categories"}
+                  {" · "}
+                  {categoryPeriodRange}
+                </div>
               </div>
             </div>
 
@@ -626,11 +711,15 @@ export default function Home() {
                   <div className="text-4xl">📊</div>
 
                   <p className="mt-3 font-semibold text-slate-700 dark:text-slate-200">
-                    No category data yet
+                    No spending {categoryPeriod === "today"
+                      ? "today"
+                      : categoryPeriod === "week"
+                        ? "this week"
+                        : "this month"}
                   </p>
 
                   <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                    Add an expense to see your breakdown.
+                    Add an expense in this period to see your breakdown.
                   </p>
                 </div>
               </div>
@@ -641,8 +730,10 @@ export default function Home() {
                     categoryStyles[category] ?? categoryStyles.Other;
 
                   const percentage =
-                    totalSpent > 0
-                      ? Math.round((total / totalSpent) * 100)
+                    categoryPeriodTotal > 0
+                      ? Math.round(
+                          (total / categoryPeriodTotal) * 100,
+                        )
                       : 0;
 
                   return (
@@ -659,7 +750,7 @@ export default function Home() {
                             </p>
 
                             <p className="text-xs text-slate-500 dark:text-slate-400">
-                              {percentage}% of total spending
+                              {percentage}% of selected spending
                             </p>
                           </div>
                         </div>
