@@ -469,6 +469,8 @@ async function handleCommand(
         "Private import token:",
         importToken,
         "",
+        "Important: before Get Contents of URL, add Get Text from Input. Set its input to Shortcut Input, then use the Text output for the sms JSON field.",
+        "",
         "Keep this token private. It can only import expenses for your Telegram account.",
       ].join("\n"),
     );

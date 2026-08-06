@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { parseHdfcSms } from "@/lib/hdfc-sms-parser";
 import { verifyIphoneImportToken } from "@/lib/iphone-import-auth";
+import { getShortcutSmsText } from "@/lib/shortcut-sms-input";
 
 type ImportRequest = {
   sms?: unknown;
@@ -90,7 +91,7 @@ export async function POST(request: Request) {
 
     const body = (await request.json()) as ImportRequest;
     const telegramUserId = Number(body.telegramUserId);
-    const sms = typeof body.sms === "string" ? body.sms.trim() : "";
+    const sms = getShortcutSmsText(body.sms);
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
 
     if (
@@ -143,7 +144,6 @@ export async function POST(request: Request) {
     const { data: existing, error: lookupError } = await supabase
       .from("expenses")
       .select("id")
-      .eq("source", "hdfc_sms")
       .eq("telegram_user_id", telegramUserId)
       .eq("description", description)
       .limit(1);
@@ -167,7 +167,7 @@ export async function POST(request: Request) {
         category: expense.category,
         description,
         expense_date: expense.expenseDate,
-        source: "hdfc_sms",
+        source: "telegram",
         telegram_user_id: telegramUserId,
       })
       .select("id, amount, description, category, expense_date")
