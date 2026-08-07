@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { detectExpenseCategory } from "@/lib/expense-categories";
 import { createIphoneImportToken } from "@/lib/iphone-import-auth";
+import { createWebLinkToken } from "@/lib/web-link-auth";
 import {
   isDebtIntent,
   parseDebtInput,
@@ -389,6 +390,7 @@ async function handleCommand(
         "/debts — tap a person to view outstanding balances",
         "/debts Bhavya — total and individual entries",
         "/iphone_setup — connect HDFC SMS imports",
+        "/web_setup — sync web expenses with Telegram",
         "/help — show this message",
       ].join("\n"),
     );
@@ -472,6 +474,48 @@ async function handleCommand(
         "Important: before Get Contents of URL, add Get Text from Input. Set its input to Shortcut Input, then use the Text output for the sms JSON field.",
         "",
         "Keep this token private. It can only import expenses for your Telegram account.",
+      ].join("\n"),
+    );
+
+    return;
+  }
+
+  if (command === "/web_setup" || command === "/web") {
+    if (chatType !== "private") {
+      await sendTelegramMessage(
+        chatId,
+        "For security, send /web_setup to me in a private chat.",
+      );
+      return;
+    }
+
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+
+    if (!botToken) {
+      throw new Error("TELEGRAM_BOT_TOKEN is missing.");
+    }
+
+    const linkUrl = new URL("/api/web-link", appOrigin);
+    linkUrl.searchParams.set(
+      "telegramUserId",
+      String(telegramUserId),
+    );
+    linkUrl.searchParams.set(
+      "token",
+      createWebLinkToken(botToken, telegramUserId),
+    );
+
+    await sendTelegramMessage(
+      chatId,
+      [
+        "🌐 Connect web expenses",
+        "",
+        "Open this private link in the browser you use for the expense dashboard:",
+        linkUrl.toString(),
+        "",
+        "It will attach existing web expenses to your Telegram account and sync future web entries automatically.",
+        "",
+        "Keep this link private.",
       ].join("\n"),
     );
 

@@ -2,10 +2,7 @@
 import DebtSection from "@/components/DebtSection";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import {
-  detectExpenseCategory,
-  expenseCategoryIcons,
-} from "@/lib/expense-categories";
+import { expenseCategoryIcons } from "@/lib/expense-categories";
 
 type Expense = {
   id: number;
@@ -18,6 +15,12 @@ type Expense = {
 };
 
 type CategoryPeriod = "today" | "week" | "month";
+
+type WebExpenseResponse = {
+  code?: string;
+  error?: string;
+  expense?: Expense;
+};
 
 const categoryPeriodOptions: Array<{
   label: string;
@@ -168,6 +171,9 @@ export default function Home() {
   const [themeLoaded, setThemeLoaded] = useState(false);
   const [categoryPeriod, setCategoryPeriod] =
     useState<CategoryPeriod>("month");
+  const [telegramLinked, setTelegramLinked] = useState<
+    boolean | null
+  >(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -194,6 +200,67 @@ export default function Home() {
     }
 
     void loadExpenses();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const linkStatus = new URLSearchParams(
+      window.location.search,
+    ).get("web_link");
+
+    async function checkWebLink() {
+      try {
+        const response = await fetch("/api/web-expenses", {
+          cache: "no-store",
+        });
+        const result = (await response.json()) as {
+          connected?: boolean;
+        };
+
+        if (cancelled) {
+          return;
+        }
+
+        setTelegramLinked(result.connected === true);
+
+        if (linkStatus === "connected" && result.connected) {
+          setMessage(
+            "Telegram sync connected. Existing and future web expenses will now appear in the bot.",
+          );
+          setMessageType("success");
+        } else if (linkStatus === "invalid") {
+          setMessage(
+            "That web connection link is invalid. Send /web_setup to the bot for a new link.",
+          );
+          setMessageType("error");
+        } else if (linkStatus === "error") {
+          setMessage(
+            "Could not connect web expenses. Please try /web_setup again.",
+          );
+          setMessageType("error");
+        }
+      } catch (error) {
+        console.error(error);
+
+        if (!cancelled) {
+          setTelegramLinked(false);
+        }
+      } finally {
+        if (linkStatus) {
+          window.history.replaceState(
+            {},
+            "",
+            window.location.pathname,
+          );
+        }
+      }
+    }
+
+    void checkWebLink();
 
     return () => {
       cancelled = true;
@@ -254,37 +321,49 @@ export default function Home() {
     setSubmitting(true);
     setMessage("");
 
-    const category = detectExpenseCategory(cleanDescription);
+    try {
+      const response = await fetch("/api/web-expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: numericAmount,
+          description: cleanDescription,
+        }),
+      });
+      const result = (await response.json()) as WebExpenseResponse;
 
-    const { data, error } = await supabase
-      .from("expenses")
-      .insert({
-        amount: numericAmount,
-        description: cleanDescription,
-        category,
-        source: "web",
-        expense_date: formatLocalDate(new Date()),
-      })
-      .select()
-      .single();
+      if (!response.ok || !result.expense) {
+        if (result.code === "web_link_required") {
+          setTelegramLinked(false);
+          setMessage(
+            "Connect this browser first: send /web_setup to the Telegram bot and open its private link.",
+          );
+        } else {
+          setMessage(
+            `Could not save expense: ${result.error ?? "Unknown error"}`,
+          );
+        }
+        setMessageType("error");
+      } else {
+        setExpenses((currentExpenses) => [
+          result.expense as Expense,
+          ...currentExpenses,
+        ]);
 
-    if (error) {
+        setAmount("");
+        setDescription("");
+        setMessage(
+          `Expense saved under ${result.expense.category} and sent to Telegram.`,
+        );
+        setMessageType("success");
+      }
+    } catch (error) {
       console.error(error);
-      setMessage(`Could not save expense: ${error.message}`);
+      setMessage("Could not reach the expense service. Please try again.");
       setMessageType("error");
-    } else {
-      setExpenses((currentExpenses) => [
-        data as Expense,
-        ...currentExpenses,
-      ]);
-
-      setAmount("");
-      setDescription("");
-      setMessage(`Expense saved under ${category}.`);
-      setMessageType("success");
+    } finally {
+      setSubmitting(false);
     }
-
-    setSubmitting(false);
   }
 
   async function deleteExpense(id: number) {
@@ -451,8 +530,20 @@ export default function Home() {
           <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
             <div>
               <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-slate-200">
-                <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                Telegram connected
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    telegramLinked
+                      ? "bg-emerald-400"
+                      : telegramLinked === false
+                        ? "bg-amber-400"
+                        : "bg-slate-400"
+                  }`}
+                />
+                {telegramLinked === null
+                  ? "Checking Telegram sync"
+                  : telegramLinked
+                    ? "Telegram synced"
+                    : "Web link required"}
               </div>
 
               <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
@@ -551,6 +642,13 @@ export default function Home() {
               The category will be detected automatically.
             </p>
 
+            {telegramLinked === false && (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+                Send <strong>/web_setup</strong> to the Telegram bot in
+                private chat, then open its link in this browser.
+              </div>
+            )}
+
             <form onSubmit={addExpense} className="mt-6 space-y-5">
               <div>
                 <label
@@ -591,6 +689,7 @@ export default function Home() {
                   id="description"
                   type="text"
                   value={description}
+                  maxLength={200}
                   onChange={(event) =>
                     setDescription(event.target.value)
                   }
